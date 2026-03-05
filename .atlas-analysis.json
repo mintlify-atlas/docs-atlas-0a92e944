@@ -1,0 +1,113 @@
+{
+  "projectType": "saas",
+  "projectName": "FriendNet",
+  "projectDescription": "Self-hosted peer-to-peer file sharing system for small groups with no port forwarding required.",
+  "theme": "almond",
+  "primaryColor": "#f47a7a",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Server",
+            "pages": [
+              "server/setup",
+              "server/configuration",
+              "server/administration"
+            ]
+          },
+          {
+            "group": "Client",
+            "pages": [
+              "client/installation",
+              "client/getting-started",
+              "client/sharing-files",
+              "client/searching",
+              "client/downloading"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/rooms",
+              "features/direct-connections",
+              "features/proxy-mode",
+              "features/webdav"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/building-from-source",
+              "advanced/cli-tools",
+              "advanced/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Protocol",
+        "groups": [
+          {
+            "group": "Protocol Documentation",
+            "pages": [
+              "protocol/overview",
+              "protocol/message-layout",
+              "protocol/version-negotiation",
+              "protocol/authentication",
+              "protocol/paths"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "api/client-rpc",
+              "api/server-rpc"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/architecture",
+              "development/building",
+              "development/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Self-hosted file sharing server",
+    "Desktop client with web UI",
+    "Peer-to-peer downloads with proxy fallback",
+    "No port forwarding required",
+    "File search across network",
+    "Private rooms for groups",
+    "WebDAV support for file access",
+    "Direct client-to-client connections"
+  ],
+  "publicApiSurface": [
+    "ClientRpcService (Connect RPC)",
+    "ServerRpcService (Connect RPC)",
+    "QUIC protocol messages (C2S, S2C, C2C)",
+    "friendnet-server binary",
+    "friendnet-client binary",
+    "friendnet-rpcclient CLI"
+  ]
+}
