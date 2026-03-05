@@ -1,0 +1,380 @@
+---
+title: Building from Source
+description: How to build and run FriendNet locally for development
+---
+
+This guide covers setting up a development environment and building FriendNet from source.
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Go 1.26+" icon="golang">
+    Download from [go.dev](https://go.dev/dl/)
+  </Card>
+  <Card title="Node.js 18+" icon="node-js">
+    Required for web UI development
+  </Card>
+  <Card title="Make" icon="terminal">
+    Build automation tool
+  </Card>
+  <Card title="Git" icon="git">
+    Version control
+  </Card>
+</CardGroup>
+
+### Optional Tools
+
+- **Buf CLI**: For protocol buffer generation (installed automatically via `make install-tools`)
+- **Docker**: For containerized builds and cross-compilation
+
+## Development Environment Setup
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/termermc/FriendNet.git
+    cd FriendNet
+    ```
+  </Step>
+  
+  <Step title="Install Build Tools">
+    ```bash
+    make install-tools
+    ```
+    
+    This installs:
+    - `buf` (v1.64.0) - Protocol buffer tooling
+    - `protoc-gen-go` (v1.36.11) - Go protobuf plugin
+    - `protoc-gen-connect-go` (v1.19.1) - Connect RPC plugin
+  </Step>
+  
+  <Step title="Install Web UI Dependencies">
+    ```bash
+    cd webui
+    npm install
+    cd ..
+    ```
+  </Step>
+  
+  <Step title="Verify Setup">
+    ```bash
+    go version  # Should show 1.26.0 or higher
+    buf --version
+    node --version
+    ```
+  </Step>
+</Steps>
+
+## Building Components
+
+### Server
+
+Build the FriendNet server:
+
+```bash
+make server
+```
+
+Output: `server/friendnet-server`
+
+The server binary includes:
+- QUIC server for client connections
+- Connect RPC API for administration
+- SQLite database for user/room management
+
+### Client
+
+Build the client with embedded web UI:
+
+```bash
+make client
+```
+
+Output: `client/friendnet-client`
+
+This will:
+1. Build the web UI assets (`webui/go generate`)
+2. Embed them into the Go binary
+3. Compile the client application
+
+<Note>
+  The first build may take longer as it downloads dependencies and compiles the web UI.
+</Note>
+
+### Client Without UI
+
+For development or headless environments:
+
+```bash
+make client-noui
+```
+
+This skips the web UI build and creates a minimal client binary.
+
+### Windows Builds
+
+Cross-compile for Windows:
+
+<CodeGroup>
+
+```bash With UI
+make client-windows
+```
+
+```bash Without UI
+make client-windows-noui
+```
+
+</CodeGroup>
+
+Output: `client/friendnet-client.exe`
+
+<Tip>
+  Windows builds use the `-H windowsgui` linker flag to hide the console window.
+</Tip>
+
+### RPC Client
+
+Build the command-line RPC client for testing:
+
+```bash
+make rpcclient
+```
+
+Output: `rpcclient/friendnet-rpcclient`
+
+Run it against a local server:
+
+```bash
+make run-rpcclient
+```
+
+## Running Locally
+
+### Start the Server
+
+```bash
+cd server
+./friendnet-server
+```
+
+Default configuration:
+- QUIC port: `7777`
+- RPC port: `8080`
+- Database: `server.db` (auto-created)
+
+### Start the Client
+
+```bash
+cd client
+./friendnet-client
+```
+
+The client will:
+1. Generate TLS certificates if needed (using mkcert)
+2. Start the web UI server on `https://localhost:8443`
+3. Open your default browser
+
+<Warning>
+  On first run, you may need to trust the self-signed certificate in your browser or system trust store.
+</Warning>
+
+## Protocol Buffer Generation
+
+Protocol buffers define the communication protocols and RPC interfaces.
+
+### Generate Go Protocol Buffers
+
+```bash
+make pb
+```
+
+This will:
+1. Lint protobuf files with `buf lint`
+2. Generate Go code from `.proto` files in `protocol/pb/`
+3. Output to `protocol/pb/` subdirectories
+
+### Generate Web UI Protocol Buffers
+
+```bash
+make pbweb
+```
+
+This generates TypeScript definitions for the web UI:
+1. Lint protobuf files
+2. Generate TypeScript/JavaScript using `@bufbuild/protoc-gen-es`
+3. Output to `webui/pb/`
+
+<Note>
+  Protocol buffer generation is typically only needed when modifying `.proto` files. The generated code is committed to the repository.
+</Note>
+
+## Hot Reloading for Web UI
+
+For rapid web UI development with hot module replacement:
+
+<Steps>
+  <Step title="Start the Client">
+    Run the client normally to start the backend RPC server:
+    ```bash
+    cd client
+    ./friendnet-client
+    ```
+  </Step>
+  
+  <Step title="Start Vite Dev Server">
+    In a separate terminal:
+    ```bash
+    cd webui
+    npm run dev
+    ```
+    
+    The Vite dev server will start on `http://localhost:5173`
+  </Step>
+  
+  <Step title="Develop with Hot Reload">
+    - Edit files in `webui/src/`
+    - Changes automatically refresh in browser
+    - RPC calls proxy to the client backend
+  </Step>
+</Steps>
+
+<Tip>
+  Vite's dev server provides instant hot module replacement without full page reloads.
+</Tip>
+
+## Testing
+
+### Run Go Tests
+
+Run all Go tests across the workspace:
+
+```bash
+go test ./...
+```
+
+Run tests for a specific module:
+
+```bash
+cd client
+go test ./...
+```
+
+Run with verbose output:
+
+```bash
+go test -v ./...
+```
+
+### Run with Coverage
+
+```bash
+go test -cover ./...
+```
+
+### Web UI Type Checking
+
+```bash
+cd webui
+npm run check
+```
+
+This runs TypeScript's type checker without emitting files.
+
+## Building for Production
+
+<Warning>
+  Production builds are not yet documented. This project is work-in-progress software.
+</Warning>
+
+For production builds, you would typically:
+- Use release build flags: `go build -ldflags="-s -w"` (strip debug info)
+- Enable optimizations in Vite: `npm run build`
+- Sign binaries for distribution
+- Package with installers/archives
+
+## Makefile Targets Reference
+
+| Target | Description |
+|--------|-------------|
+| `help` | Display available targets |
+| `install-tools` | Install buf, protoc-gen-go, protoc-gen-connect-go |
+| `pb` | Generate Go protocol buffers |
+| `pbweb` | Generate TypeScript protocol buffers |
+| `server` | Build server binary |
+| `client` | Build client with web UI |
+| `client-noui` | Build client without web UI |
+| `client-windows` | Cross-compile client for Windows |
+| `client-windows-noui` | Cross-compile client for Windows (no UI) |
+| `rpcclient` | Build RPC client CLI |
+| `run-rpcclient` | Build and run RPC client |
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Certificate Errors in Browser">
+    The client uses self-signed certificates generated by mkcert. You may need to:
+    1. Trust the certificate in your browser (click "Advanced" → "Proceed")
+    2. Or install the CA certificate in your system trust store
+    
+    See the mkcert documentation for platform-specific instructions.
+  </Accordion>
+  
+  <Accordion title="Port Already in Use">
+    If you get a "port already in use" error:
+    ```bash
+    # Find process using port 8443
+    lsof -i :8443  # macOS/Linux
+    netstat -ano | findstr :8443  # Windows
+    
+    # Kill the process or change the port in client configuration
+    ```
+  </Accordion>
+  
+  <Accordion title="Go Version Mismatch">
+    FriendNet requires Go 1.26.0 or higher:
+    ```bash
+    go version  # Check current version
+    # Download latest from https://go.dev/dl/
+    ```
+  </Accordion>
+  
+  <Accordion title="Protocol Buffer Generation Fails">
+    Ensure buf is installed:
+    ```bash
+    make install-tools
+    buf --version
+    ```
+    
+    Or install manually:
+    ```bash
+    go install github.com/bufbuild/buf/cmd/buf@v1.64.0
+    ```
+  </Accordion>
+  
+  <Accordion title="Web UI Build Fails">
+    Clear node modules and reinstall:
+    ```bash
+    cd webui
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/development/architecture">
+    Understand the system design
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Learn how to contribute code
+  </Card>
+  <Card title="Protocol Docs" icon="book" href="https://github.com/termermc/FriendNet/blob/main/protocol/README.md">
+    Dive into protocol details
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/termermc/FriendNet/issues">
+    Report bugs or request features
+  </Card>
+</CardGroup>

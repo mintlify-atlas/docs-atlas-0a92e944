@@ -1,0 +1,270 @@
+---
+title: Rooms
+description: Shared spaces for peer-to-peer file sharing and collaboration
+---
+
+Rooms are shared spaces on a FriendNet server where users can connect to share files, search across peers, and communicate peer-to-peer. Each room is isolated with its own set of connected clients and permissions.
+
+## What Are Rooms?
+
+A room is a virtual space managed by the FriendNet server that coordinates connections between clients. Think of it as a chat room, but for file sharing. Users join rooms to discover other connected peers and access their shared files.
+
+### Key Features
+
+- **User isolation**: Each room maintains its own list of connected users
+- **Account system**: Rooms support password-protected accounts for access control
+- **Real-time presence**: See who's online in your room
+- **Room-specific search**: Search across all files shared by users in the room
+
+## Creating and Joining Rooms
+
+Rooms are created on the server side and persist across client connections:
+
+```go client/room/manager.go
+// CreateRoom creates a new room and returns it
+func (m *Manager) CreateRoom(ctx context.Context, name common.NormalizedRoomName) (*Room, error) {
+    // Create room in storage
+    err := m.storage.CreateRoom(ctx, name)
+    if err != nil {
+        return nil, err
+    }
+
+    // Create room instance and add it to manager
+    room := NewRoom(
+        m.logger,
+        m.storage,
+        m.connMethodSupport,
+        m.passReqs,
+        name,
+        m.logic,
+    )
+
+    m.mu.Lock()
+    m.rooms[name.String()] = room
+    m.mu.Unlock()
+
+    return room, nil
+}
+```
+
+Clients connect to rooms through the server. Once connected, they can see other online users and access their shared files.
+
+## Room Structure
+
+Each room instance maintains:
+
+```go server/room/room.go
+type Room struct {
+    logger *slog.Logger
+
+    storage           *storage.Storage
+    connMethodSupport machine.ConnMethodSupport
+    passReqs          pass.Requirements
+
+    // The room's name
+    Name common.NormalizedRoomName
+
+    // The room's token manager
+    TokenManager *TokenManager
+
+    // The room's context (canceled when closed)
+    Context   context.Context
+    ctxCancel context.CancelFunc
+
+    logic Logic
+
+    // Key is the string value of a common.NormalizedUsername
+    clients map[string]*Client
+}
+```
+
+## Room Permissions
+
+Rooms support an account-based permission system:
+
+### Creating Accounts
+
+```go server/room/room.go
+// CreateAccount creates a new account in the room
+func (r *Room) CreateAccount(ctx context.Context, username common.NormalizedUsername, password string) error {
+    _, has, err := r.storage.GetAccountByRoomAndUsername(ctx, r.Name, username)
+    if err != nil {
+        return fmt.Errorf(`failed to check if account exists: %w`, err)
+    }
+    if has {
+        return ErrAccountExists
+    }
+
+    hash, err := pass.HashWithRequirements(username, password, r.passReqs)
+    if err != nil {
+        return fmt.Errorf(`failed to hash password: %w`, err)
+    }
+
+    err = r.storage.CreateAccount(ctx, r.Name, username, hash)
+    if err != nil {
+        return fmt.Errorf(`failed to create account: %w`, err)
+    }
+
+    return nil
+}
+```
+
+### Account Management
+
+Rooms provide methods for managing accounts:
+
+- **CreateAccount**: Create a new user account with password
+- **DeleteAccount**: Remove a user account
+- **UpdateAccountPassword**: Change a user's password
+- **VerifyAccountPassword**: Authenticate a user
+- **KickClientByUsername**: Disconnect a specific user
+
+## Room-Specific Search
+
+One of the most powerful features of rooms is the ability to search across all files shared by connected users.
+
+### How Search Works
+
+When a client performs a search in a room:
+
+```go client/room/logic.go
+func (l *LogicImpl) OnSearch(ctx context.Context, _ *Conn, bidi protocol.ProtoBidi, msg *protocol.TypedProtoMsg[*pb.MsgSearch]) error {
+    query := msg.Payload.Query
+
+    if query == "" {
+        return bidi.WriteError(pb.ErrType_ERR_TYPE_INVALID_FIELDS, "query cannot be empty")
+    }
+
+    results, err := l.shares.SearchShares(ctx, query, l.searchLimit)
+    if err != nil {
+        return fmt.Errorf("failed to get search results for %q: %w", query, err)
+    }
+
+    for i := range results {
+        result := &results[i]
+        err = bidi.Write(pb.MsgType_MSG_TYPE_SEARCH_RESULT, result)
+        if err != nil {
+            if protocol.IsErrorConnCloseOrCancel(err) {
+                return nil
+            }
+            return fmt.Errorf("failed to send search result for %q: %w", query, err)
+        }
+    }
+
+    return nil
+}
+```
+
+### Search Features
+
+- **Full-text search**: Search within file and directory names
+- **Distributed results**: Results stream back from each peer as they search locally
+- **Index-based**: Uses local SQLite FTS5 indexes for fast searching
+- **Configurable limits**: Set maximum results per peer
+
+### Initiating a Room Search
+
+```go client/room/conn.go
+// Search requests the server to search all online clients' shares
+func (c *Conn) Search(query string) (protocol.Stream[*pb.MsgSearchRoomResult], error) {
+    bidi, err := c.serverConn.OpenBidiWithMsg(pb.MsgType_MSG_TYPE_SEARCH, &pb.MsgSearch{
+        Query: query,
+    })
+    if err != nil {
+        return nil, err
+    }
+    return protocol.NewTransformerStream(
+        protocol.NewTypedMsgStream[*pb.MsgSearchRoomResult](bidi, pb.MsgType_MSG_TYPE_SEARCH_ROOM_RESULT),
+        func(msg *protocol.TypedProtoMsg[*pb.MsgSearchRoomResult]) *pb.MsgSearchRoomResult {
+            return msg.Payload
+        },
+    ), nil
+}
+```
+
+## Client Presence
+
+Rooms broadcast presence information to all connected clients:
+
+```go server/room/room.go
+// handleConnect performs logic after a client connects
+func (r *Room) handleConnect(client *Client) {
+    r.clients[client.Username.String()] = client
+
+    r.Broadcast(pb.MsgType_MSG_TYPE_CLIENT_ONLINE, &pb.MsgClientOnline{
+        Info: &pb.OnlineUserInfo{
+            Username: client.Username.String(),
+        },
+    })
+
+    r.logger.Info("client connected",
+        "service", "room.Room",
+        "room", r.Name.String(),
+        "username", client.Username.String(),
+    )
+}
+```
+
+When clients disconnect, the room broadcasts an offline message:
+
+```go server/room/room.go
+// handleDisconnect performs logic after a client disconnects
+func (r *Room) handleDisconnect(client *Client) {
+    delete(r.clients, client.Username.String())
+
+    r.Broadcast(pb.MsgType_MSG_TYPE_CLIENT_OFFLINE, &pb.MsgClientOffline{
+        Username: client.Username.String(),
+    })
+
+    r.logger.Info("client disconnected",
+        "service", "room.Room",
+        "room", r.Name.String(),
+        "username", client.Username.String(),
+    )
+}
+```
+
+## Broadcasting Messages
+
+Rooms can send messages to all connected clients:
+
+```go server/room/room.go
+// Broadcast broadcasts a message to all clients in the room
+func (r *Room) Broadcast(typ pb.MsgType, msg proto.Message) {
+    go func() {
+        clients := r.GetAllClients()
+        for _, client := range clients {
+            go func() {
+                bidi, err := client.conn.OpenBidiWithMsg(typ, msg)
+                if err != nil {
+                    if protocol.IsErrorConnCloseOrCancel(err) {
+                        return
+                    }
+                    r.logger.Error("failed to broadcast message to client",
+                        "service", "room.Room",
+                        "username", client.Username.String(),
+                        "message_type", typ.String(),
+                    )
+                }
+                time.Sleep(100 * time.Millisecond)
+                _ = bidi.Close()
+            }()
+        }
+    }()
+}
+```
+
+<Note>
+Broadcasts are fire-and-forget operations that return immediately without waiting for message delivery.
+</Note>
+
+## Related Topics
+
+<CardGroup cols={2}>
+  <Card title="Direct Connections" icon="link" href="/features/direct-connections">
+    Learn how clients establish peer-to-peer connections within rooms
+  </Card>
+  <Card title="Proxy Mode" icon="server" href="/features/proxy-mode">
+    Understand how the server proxies connections when direct connections fail
+  </Card>
+</CardGroup>

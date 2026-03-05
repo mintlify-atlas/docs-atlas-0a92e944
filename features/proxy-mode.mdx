@@ -1,0 +1,298 @@
+---
+title: Proxy Mode
+description: Server-relayed connections when direct peer-to-peer fails
+---
+
+Proxy mode allows FriendNet clients to communicate through the server when direct peer-to-peer connections cannot be established. This ensures connectivity even in restrictive network environments.
+
+## How Proxy Connections Work
+
+When clients cannot establish a direct connection (due to firewalls, NAT, or network restrictions), the server acts as a relay, forwarding data between the two clients.
+
+### The Flow
+
+1. **Client A** requests to open a proxied connection to **Client B**
+2. **Server** verifies both clients are online in the same room
+3. **Server** opens a bidirectional stream (bidi) to **Client B** notifying them of the incoming proxy
+4. **Server** creates a `ClientProxy` that bridges the two clients
+5. **Data flows**: Client A ↔ Server ↔ Client B
+
+## ClientProxy Implementation
+
+The server uses `ClientProxy` to relay data between two clients:
+
+```go server/room/proxy.go
+type ClientProxy struct {
+    mu       sync.Mutex
+    isClosed bool
+
+    ctx       context.Context
+    ctxCancel context.CancelFunc
+
+    originBidi protocol.ProtoBidi
+    targetBidi protocol.ProtoBidi
+}
+```
+
+### Creating a Proxy
+
+```go server/room/proxy.go
+// NewClientProxy creates a new ClientProxy from an existing origin bidi
+func NewClientProxy(
+    room *Room,
+    originUsername common.NormalizedUsername,
+    targetUsername common.NormalizedUsername,
+    originBidi protocol.ProtoBidi,
+) (*ClientProxy, error) {
+    targetClient, isOnline := room.GetClientByUsername(targetUsername)
+    if !isOnline {
+        return nil, ErrTargetNotOnline
+    }
+
+    proxyBidi, err := targetClient.conn.OpenBidiWithMsg(pb.MsgType_MSG_TYPE_INBOUND_PROXY, &pb.MsgInboundProxy{
+        OriginUsername: originUsername.String(),
+    })
+    if err != nil {
+        return nil, fmt.Errorf(`failed to open outbound proxy: %w`, err)
+    }
+
+    ctx, ctxCancel := context.WithCancel(context.Background())
+
+    return &ClientProxy{
+        ctx:       ctx,
+        ctxCancel: ctxCancel,
+
+        originBidi: originBidi,
+        targetBidi: proxyBidi,
+    }, nil
+}
+```
+
+### Running the Proxy
+
+The proxy continuously copies data between the two streams:
+
+```go server/room/proxy.go
+func (p *ClientProxy) proxyThread(from protocol.ProtoBidi, to protocol.ProtoBidi) error {
+    _, err := io.Copy(to.Stream, from.Stream)
+    return err
+}
+
+// Run runs the proxy until it is closed
+func (p *ClientProxy) Run() error {
+    p.mu.Lock()
+    if p.isClosed {
+        p.mu.Unlock()
+        return ErrProxyClosed
+    }
+    p.mu.Unlock()
+
+    // Proxy will be closed after this returns no matter what
+    defer func() {
+        _ = p.Close()
+    }()
+
+    proxyErr := make(chan error, 1)
+
+    go func() {
+        proxyErr <- p.proxyThread(p.originBidi, p.targetBidi)
+    }()
+    go func() {
+        proxyErr <- p.proxyThread(p.targetBidi, p.originBidi)
+    }()
+
+    select {
+    case err := <-proxyErr:
+        if errors.Is(err, context.Canceled) ||
+            errors.Is(err, ErrProxyClosed) ||
+            errors.Is(err, io.EOF) {
+            return nil
+        }
+
+        // Stream was canceled by the other end
+        if _, ok := errors.AsType[*quic.StreamError](err); ok {
+            return nil
+        }
+
+        return err
+    case <-p.ctx.Done():
+        return nil
+    }
+}
+```
+
+<Info>
+The proxy runs two goroutines that simultaneously copy data in both directions: origin→target and target→origin.
+</Info>
+
+## When Proxy Mode Is Used
+
+Proxy mode is automatically used as a fallback when:
+
+### 1. Direct Connection Attempts Fail
+
+If all direct connection methods fail (due to NAT, firewall, or connectivity issues), the client automatically falls back to proxy mode.
+
+### 2. Direct Connections Are Disabled
+
+Clients can disable direct connections entirely, forcing all communication through the server:
+
+```go client/direct/manager.go
+// IsDisabled returns true if the manager is disabled
+func (m *Manager) IsDisabled() bool {
+    return m.cfg.Disable
+}
+```
+
+### 3. Connection Method Not Supported
+
+If the target client advertises connection methods that the origin doesn't support (e.g., IPv6 when IPv6 is disabled), proxy mode is used.
+
+## Client-Side Proxy Handling
+
+Clients receive inbound proxy notifications and handle them appropriately:
+
+```go client/room/logic.go
+// OnConnectToMe handles an incoming connect to me request (C2C)
+func (l *LogicImpl) OnConnectToMe(ctx context.Context, room *Conn, bidi C2cBidi, _ *protocol.TypedProtoMsg[*pb.MsgConnectToMe]) error {
+    if room.directMgr.IsDisabled() {
+        return bidi.Write(pb.MsgType_MSG_TYPE_DIRECT_CONN_RESULT, &pb.MsgDirectConnResult{
+            Result: pb.ConnResult_CONN_RESULT_DID_NOT_TRY,
+        })
+    }
+
+    _, result, err := room.tryConnectToPeer(ctx, bidi.Username)
+    if err != nil && result == pb.ConnResult_CONN_RESULT_INTERNAL_ERROR {
+        room.logger.Error("internal error while connecting to peer",
+            "service", "room.LogicImpl",
+            "room", room.RoomName.String(),
+            "peer", bidi.Username.String(),
+            "err", err,
+        )
+    }
+
+    return bidi.Write(pb.MsgType_MSG_TYPE_DIRECT_CONN_RESULT, &pb.MsgDirectConnResult{
+        Result: result,
+    })
+}
+```
+
+## Performance Considerations
+
+### Advantages of Proxy Mode
+
+- **Guaranteed connectivity**: Works in any network environment
+- **No port forwarding needed**: No UPnP or manual router configuration required
+- **Firewall friendly**: Only requires outbound connections to the server
+
+### Disadvantages of Proxy Mode
+
+- **Higher latency**: All data must make an extra hop through the server
+- **Server bandwidth**: Uses server resources for data transfer
+- **Scalability**: Server must handle all data for proxied connections
+
+### Performance Comparison
+
+<Card title="Transfer Speed" icon="gauge-high">
+  **Direct Connection**: Limited only by peer bandwidth and network conditions
+  
+  **Proxy Mode**: Limited by server bandwidth and potentially slower due to extra hop
+</Card>
+
+<Card title="Latency" icon="clock">
+  **Direct Connection**: Minimum latency (single hop)
+  
+  **Proxy Mode**: Higher latency (two hops: client→server→client)
+</Card>
+
+## Privacy Implications
+
+### Data Visibility
+
+<Warning>
+When using proxy mode, all data flows through the server. While the server doesn't log or inspect this data, it has technical access to it.
+</Warning>
+
+**In Proxy Mode:**
+- Server can see file names and metadata being transferred
+- Server can see file contents (though it doesn't store or log them)
+- Connection metadata (who's talking to whom) is visible to the server
+
+**In Direct Mode:**
+- Server only sees initial connection setup
+- All file data transfers directly between peers
+- Only connection metadata is visible to the server
+
+### Security Considerations
+
+1. **TLS Encryption**: All connections (direct and proxied) use TLS/QUIC encryption
+2. **Authentication**: Token-based authentication prevents unauthorized access
+3. **No Logging**: The server doesn't log proxied data (by default)
+4. **Trust Model**: You must trust your FriendNet server operator when using proxy mode
+
+## Closing Proxy Connections
+
+Proxies are automatically closed when:
+
+```go server/room/proxy.go
+// Close closes the proxy by closing bidi streams
+func (p *ClientProxy) Close() error {
+    p.mu.Lock()
+    if p.isClosed {
+        p.mu.Unlock()
+        return nil
+    }
+    p.isClosed = true
+    p.mu.Unlock()
+
+    p.ctxCancel()
+
+    errs := make([]error, 0, 2)
+    if err := p.targetBidi.Close(); err != nil {
+        errs = append(errs, err)
+    }
+    if err := p.originBidi.Close(); err != nil {
+        errs = append(errs, err)
+    }
+    if len(errs) == 0 {
+        return nil
+    }
+    return fmt.Errorf("closing proxy bidi streams failed: %w", errors.Join(errs...))
+}
+```
+
+- Either client closes their end of the connection
+- Either client disconnects from the room
+- The server shuts down
+- A network error occurs
+
+## Best Practices
+
+<Steps>
+  <Step title="Try Direct First">
+    Always attempt direct connections before falling back to proxy mode for better performance.
+  </Step>
+  
+  <Step title="Configure UPnP">
+    Enable UPnP support to increase direct connection success rates on consumer networks.
+  </Step>
+  
+  <Step title="Monitor Usage">
+    Track how often proxy mode is used to identify network configuration issues.
+  </Step>
+  
+  <Step title="Server Resources">
+    Consider server bandwidth when expecting many proxied connections.
+  </Step>
+</Steps>
+
+## Related Topics
+
+<CardGroup cols={2}>
+  <Card title="Direct Connections" icon="link" href="/features/direct-connections">
+    Learn how direct peer-to-peer connections work
+  </Card>
+  <Card title="Rooms" icon="users" href="/features/rooms">
+    Understand the room system that coordinates connections
+  </Card>
+</CardGroup>

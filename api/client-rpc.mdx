@@ -1,0 +1,770 @@
+---
+title: "Client RPC API"
+description: "Control and query a running FriendNet client via RPC"
+---
+
+## Overview
+
+The ClientRpcService provides an RPC interface to a running FriendNet client. You can query state, manage servers and shares, browse remote files, and perform various client operations.
+
+## Connection
+
+Connect to the Client RPC service using ConnectRPC:
+
+```typescript
+import { createPromiseClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-node";
+import { ClientRpcService } from "./gen/clientrpc/v1/rpc_connect";
+
+const transport = createConnectTransport({
+  baseUrl: "http://localhost:8080",
+  httpVersion: "2",
+});
+
+const client = createPromiseClient(ClientRpcService, transport);
+```
+
+## Authentication
+
+If authorization is required, include a bearer token in your requests:
+
+```typescript
+const transport = createConnectTransport({
+  baseUrl: "http://localhost:8080",
+  httpVersion: "2",
+  interceptors: [
+    (next) => async (req) => {
+      req.header.set("Authorization", "Bearer YOUR_TOKEN_HERE");
+      return await next(req);
+    },
+  ],
+});
+```
+
+### Error Codes
+- `UNAUTHENTICATED` - Authorization required but not provided
+- `PERMISSION_DENIED` - Invalid authorization credentials
+
+## RPC Methods
+
+### StreamLogs
+
+Returns an ongoing stream of log messages from the client.
+
+```typescript
+const stream = client.streamLogs({
+  sendLogsAfterTs: 1709654400000, // Optional: UNIX ms timestamp
+});
+
+for await (const response of stream) {
+  console.log(response.logs);
+}
+```
+
+<ParamField path="send_logs_after_ts" type="int64" optional>
+  Optionally send existing logs after this timestamp before streaming live logs. The timestamp is a UNIX millisecond timestamp.
+</ParamField>
+
+<ResponseField name="logs" type="LogMessage[]">
+  The log messages. Usually contains one message, but may contain many when sending existing logs. Ordered by timestamp ascending.
+  
+  <Expandable title="LogMessage">
+    <ResponseField name="uid" type="string">
+      The message's unique identifier
+    </ResponseField>
+    <ResponseField name="created_ts" type="int64">
+      UNIX millisecond timestamp when the log was created
+    </ResponseField>
+    <ResponseField name="message" type="string">
+      The textual log message
+    </ResponseField>
+    <ResponseField name="attrs" type="LogMessageAttr[]">
+      The message's attributes
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### StreamEvents
+
+Returns an ongoing stream of events from the client.
+
+```typescript
+const stream = client.streamEvents({});
+
+for await (const response of stream) {
+  if (response.event.type === "TYPE_CLIENT_ONLINE") {
+    console.log(`User ${response.event.clientOnline.info.username} is online`);
+  }
+}
+```
+
+<ResponseField name="event" type="Event">
+  The event that occurred
+  
+  <Expandable title="Event Types">
+    - `TYPE_STOP` - The client is stopping
+    - `TYPE_SERVER_CONN_STATE_CHANGE` - A server's connection state changed
+    - `TYPE_CLIENT_ONLINE` - A client went online
+    - `TYPE_CLIENT_OFFLINE` - A client went offline
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="context" type="EventContext">
+  Context about where the event was generated
+  
+  <Expandable title="EventContext">
+    <ResponseField name="server_uuid" type="string">
+      The UUID of the server where the event originated
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Stop
+
+Shuts down the client.
+
+```typescript
+await client.stop({});
+```
+
+---
+
+### GetClientInfo
+
+Returns information about the FriendNet client.
+
+```typescript
+const info = await client.getClientInfo({});
+console.log(`File server URL: ${info.fileServerUrl}`);
+```
+
+<ResponseField name="file_server_url" type="string">
+  The base URL to the HTTP file server
+</ResponseField>
+
+---
+
+### GetServers
+
+Returns a list of all configured servers.
+
+```typescript
+const response = await client.getServers({});
+console.log(response.servers);
+```
+
+<ResponseField name="servers" type="ServerInfo[]">
+  The server records
+  
+  <Expandable title="ServerInfo">
+    <ResponseField name="uuid" type="string">
+      The server's unique identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      The name given to the server
+    </ResponseField>
+    <ResponseField name="address" type="string">
+      The server's address
+    </ResponseField>
+    <ResponseField name="room" type="string">
+      The room to connect to
+    </ResponseField>
+    <ResponseField name="username" type="string">
+      The username to use for authentication
+    </ResponseField>
+    <ResponseField name="created_ts" type="int64">
+      UNIX timestamp when the server was created
+    </ResponseField>
+    <ResponseField name="state" type="State">
+      The server's current state including connection state
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### CreateServer
+
+Creates a new server and automatically connects to it.
+
+```typescript
+const response = await client.createServer({
+  name: "My Server",
+  address: "example.com:8443",
+  room: "default",
+  username: "alice",
+  password: "secret123",
+});
+console.log(`Created server: ${response.server.uuid}`);
+```
+
+<ParamField path="name" type="string" required>
+  The name given to the server record
+</ParamField>
+
+<ParamField path="address" type="string" required>
+  The server's address
+</ParamField>
+
+<ParamField path="room" type="string" required>
+  The room to connect to
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The username to use
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  The password to use
+</ParamField>
+
+<ResponseField name="server" type="ServerInfo">
+  The newly created server record
+</ResponseField>
+
+---
+
+### DeleteServer
+
+Disconnects and deletes a server.
+
+```typescript
+await client.deleteServer({
+  uuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+```
+
+<ParamField path="uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### ConnectServer
+
+Connects to an existing server. The server will reconnect automatically until DisconnectServer is called. No-op if already connected.
+
+```typescript
+await client.connectServer({
+  uuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+```
+
+<ParamField path="uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### DisconnectServer
+
+Disconnects from an existing server. The server will not reconnect until ConnectServer is called. No-op if already disconnected.
+
+```typescript
+await client.disconnectServer({
+  uuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+```
+
+<ParamField path="uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### UpdateServer
+
+Updates server info. Does not disconnect the server, so disconnection and reconnection is required for changes to take effect.
+
+```typescript
+const response = await client.updateServer({
+  uuid: "550e8400-e29b-41d4-a716-446655440000",
+  name: "Updated Name",
+  address: "new.example.com:8443",
+});
+```
+
+<ParamField path="uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  The new name, if any
+</ParamField>
+
+<ParamField path="address" type="string" optional>
+  The new address, if any
+</ParamField>
+
+<ParamField path="room" type="string" optional>
+  The new room, if any
+</ParamField>
+
+<ParamField path="username" type="string" optional>
+  The new username, if any
+</ParamField>
+
+<ParamField path="password" type="string" optional>
+  The new password, if any
+</ParamField>
+
+<ResponseField name="server" type="ServerInfo">
+  The server after update
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### GetShares
+
+Returns shares for a server.
+
+```typescript
+const response = await client.getShares({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+console.log(response.shares);
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The UUID of the server to get shares for
+</ParamField>
+
+<ResponseField name="shares" type="ShareInfo[]">
+  The shares
+  
+  <Expandable title="ShareInfo">
+    <ResponseField name="uuid" type="string">
+      The share's unique identifier
+    </ResponseField>
+    <ResponseField name="server_uuid" type="string">
+      The UUID of the associated server
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      The share's name
+    </ResponseField>
+    <ResponseField name="path" type="string">
+      The share's path on disk
+    </ResponseField>
+    <ResponseField name="follow_links" type="bool">
+      Whether symbolic links are followed
+    </ResponseField>
+    <ResponseField name="created_ts" type="int64">
+      UNIX timestamp when the share was created
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### CreateShare
+
+Creates a new server share.
+
+```typescript
+const response = await client.createShare({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  name: "Documents",
+  path: "/home/user/docs",
+  followLinks: false,
+});
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The UUID of the associated server
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The share's name
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  The share's path on disk
+</ParamField>
+
+<ParamField path="follow_links" type="bool" required>
+  Whether to follow symbolic links
+</ParamField>
+
+<ResponseField name="share" type="ShareInfo">
+  The newly created share
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+- `INVALID_ARGUMENT` - The share name is invalid
+- `ALREADY_EXISTS` - A share with the same name already exists
+
+---
+
+### DeleteShare
+
+Deletes an existing server share.
+
+```typescript
+await client.deleteShare({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  name: "Documents",
+});
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The associated server UUID
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The share's name
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server or share exists
+
+---
+
+### GetDirFiles
+
+Requests the files within a directory shared by an online user. Returns a stream of responses.
+
+```typescript
+const stream = client.getDirFiles({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  username: "bob",
+  path: "/Documents",
+});
+
+for await (const response of stream) {
+  console.log(response.content);
+}
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The online user's username
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  The path to get the contents of
+</ParamField>
+
+<ResponseField name="content" type="FileMeta[]">
+  The directory's files
+  
+  <Expandable title="FileMeta">
+    <ResponseField name="name" type="string">
+      The file's name
+    </ResponseField>
+    <ResponseField name="is_dir" type="bool">
+      Whether the file is a directory
+    </ResponseField>
+    <ResponseField name="size" type="uint64">
+      The file's size in bytes (always zero for directories)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Error Codes:**
+- `INVALID_ARGUMENT` - The path is not a directory
+- `NOT_FOUND` - No such server or path exists
+- `UNAVAILABLE` - The user is offline or cannot be reached
+
+---
+
+### GetFileMeta
+
+Returns metadata about a path shared by an online user.
+
+```typescript
+const response = await client.getFileMeta({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  username: "bob",
+  path: "/Documents/readme.txt",
+});
+console.log(`File size: ${response.meta.size} bytes`);
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The online user's username
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  The path to get metadata for
+</ParamField>
+
+<ResponseField name="meta" type="FileMeta">
+  The file's metadata
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server or path exists
+- `UNAVAILABLE` - The user is offline or cannot be reached
+
+---
+
+### GetOnlineUsers
+
+Returns a list of online users in a server. Returns a stream of responses.
+
+```typescript
+const stream = client.getOnlineUsers({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+
+for await (const response of stream) {
+  console.log(response.users);
+}
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+<ResponseField name="users" type="OnlineUserInfo[]">
+  The online users
+  
+  <Expandable title="OnlineUserInfo">
+    <ResponseField name="username" type="string">
+      The user's username
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### ChangeAccountPassword
+
+Changes the password for a server account. This requests that the server update the password, not just the local login credentials. If successful, the local password is also updated.
+
+```typescript
+await client.changeAccountPassword({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  currentPassword: "oldpass123",
+  newPassword: "newpass456",
+});
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+<ParamField path="current_password" type="string" required>
+  The account's current password
+</ParamField>
+
+<ParamField path="new_password" type="string" required>
+  The account's new password
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+- `INVALID_ARGUMENT` - The new password was not allowed (too short, too long, etc.)
+- `PERMISSION_DENIED` - The current password was incorrect
+
+---
+
+### ServerConnect
+
+Tries to connect to a server immediately. If the server was previously disconnected and reconnect was disabled, reconnect will be enabled.
+
+```typescript
+await client.serverConnect({
+  uuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+```
+
+<ParamField path="uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### ServerDisconnect
+
+Disconnects from a server. Reconnect will be disabled until ServerConnect is called.
+
+```typescript
+await client.serverDisconnect({
+  uuid: "550e8400-e29b-41d4-a716-446655440000",
+});
+```
+
+<ParamField path="uuid" type="string" required>
+  The server's UUID
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+
+---
+
+### GetDirectSettings
+
+Returns the client's direct connection settings. The settings may not have taken effect yet if UpdateDirectSettings was called without restarting.
+
+```typescript
+const response = await client.getDirectSettings({});
+console.log(response.settings);
+```
+
+<ResponseField name="settings" type="DirectSettings">
+  The client's direct connection settings
+  
+  <Expandable title="DirectSettings">
+    <ResponseField name="disable" type="bool">
+      Whether to disable direct connections entirely
+    </ResponseField>
+    <ResponseField name="addresses" type="string[]">
+      Initial addresses to listen on (format: `IPv4:PORT`, `[IPv6]:PORT`, `IP`)
+    </ResponseField>
+    <ResponseField name="default_port" type="uint32">
+      The default port for addresses without a specified port
+    </ResponseField>
+    <ResponseField name="disable_probe_ips_to_advertise" type="bool">
+      Whether to disable probing the machine for IPs to advertise
+    </ResponseField>
+    <ResponseField name="advertise_private_ips" type="bool">
+      Whether to advertise private IPs
+    </ResponseField>
+    <ResponseField name="disable_public_ip_discovery" type="bool">
+      Whether to disable public IP discovery via the server
+    </ResponseField>
+    <ResponseField name="disable_upnp" type="bool">
+      Whether to disable UPnP
+    </ResponseField>
+    <ResponseField name="upnp_timeout_ms" type="uint32">
+      The timeout for using UPnP (defaults to 10 seconds)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### UpdateDirectSettings
+
+Updates the client's direct connection settings. Changes will not take effect until the client is restarted. All fields must be filled.
+
+```typescript
+await client.updateDirectSettings({
+  settings: {
+    disable: false,
+    addresses: ["0.0.0.0:9000"],
+    defaultPort: 9000,
+    disableProbeIpsToAdvertise: false,
+    advertisePrivateIps: true,
+    disablePublicIpDiscovery: false,
+    disableUpnp: false,
+    upnpTimeoutMs: 10000,
+  },
+});
+```
+
+<ParamField path="settings" type="DirectSettings" required>
+  The settings to update. All fields must be filled.
+</ParamField>
+
+---
+
+### IndexShare
+
+Requests that a share be indexed. The share will be scheduled to be indexed in the background.
+
+```typescript
+await client.indexShare({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  name: "Documents",
+});
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The associated server UUID
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The share's name
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server or share exists
+- `FAILED_PRECONDITION` - The share does not have indexing enabled
+
+---
+
+### StreamSearch
+
+Searches a specific client or all clients. Streams results as they come in.
+
+```typescript
+const stream = client.streamSearch({
+  serverUuid: "550e8400-e29b-41d4-a716-446655440000",
+  username: "bob", // Optional: omit to search all clients
+  query: "document",
+});
+
+for await (const response of stream) {
+  console.log(`${response.username}: ${response.directoryPath}/${response.file.name}`);
+  console.log(`Snippet: ${response.snippet}`);
+}
+```
+
+<ParamField path="server_uuid" type="string" required>
+  The associated server's UUID
+</ParamField>
+
+<ParamField path="username" type="string" optional>
+  The username of the client to search, or omit to search all clients
+</ParamField>
+
+<ParamField path="query" type="string" required>
+  The search query
+</ParamField>
+
+<ResponseField name="username" type="string">
+  The username of the client the result came from
+</ResponseField>
+
+<ResponseField name="directory_path" type="string">
+  The file's containing directory path
+</ResponseField>
+
+<ResponseField name="file" type="FileMeta">
+  The file that was found
+</ResponseField>
+
+<ResponseField name="snippet" type="string">
+  A snippet of text highlighting matched terms
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such server exists
+- `INVALID_ARGUMENT` - The search query is empty
+- `UNAVAILABLE` - The user is offline or cannot be reached (if a specific client was specified)

@@ -1,0 +1,404 @@
+---
+title: Paths
+description: Path format, validation rules, and security considerations
+---
+
+FriendNet uses a strict path format for all file operations. These rules ensure paths are deterministic, secure, and consistent across all implementations.
+
+## Path Overview
+
+Paths in the FriendNet protocol are:
+
+- **Local to users** - Each user controls their own path namespace
+- **Based on shares** - Typically organized under shared folders
+- **Absolute** - Always interpreted from the root
+- **Case-sensitive** - `/Music` and `/music` are different paths
+
+<Info>
+While paths typically begin with a shared folder (e.g., `/shared music/`), the protocol itself has no concept of shares. Path organization is entirely up to the user.
+</Info>
+
+### Example Path
+
+```
+/shared music/Kevin MacLeod/Monkeys Spinning Monkeys.mp3
+```
+
+This path points to a file in a user's shared music collection.
+
+## Path Rules
+
+<Warning>
+**Implementations must not accept invalid paths.** Always reject them rather than trying to normalize them. This ensures security and consistency.
+</Warning>
+
+### Required Rules
+
+<AccordionGroup>
+  <Accordion title="Must begin with /" icon="arrow-right">
+    All paths must start with a forward slash.
+    
+    ```
+    ✅ /music/song.mp3
+    ❌ music/song.mp3
+    ❌ ~/music/song.mp3
+    ```
+  </Accordion>
+  
+  <Accordion title="Must be absolute" icon="map">
+    Paths are always interpreted as absolute, never relative.
+    
+    ```
+    ✅ /docs/readme.txt
+    ❌ ../docs/readme.txt
+    ❌ ./readme.txt
+    ```
+  </Accordion>
+  
+  <Accordion title="Must use / as separator" icon="slash">
+    Always use forward slash, never backslash or other separators.
+    
+    ```
+    ✅ /pics/cats/fluffy.jpg
+    ❌ \pics\cats\fluffy.jpg
+    ❌ /pics:cats:fluffy.jpg
+    ```
+  </Accordion>
+  
+  <Accordion title="Must not contain . or .. components" icon="ban">
+    Path traversal components are strictly forbidden.
+    
+    ```
+    ✅ /bar
+    ❌ /foo/../bar
+    ❌ /foo/./bar
+    ```
+  </Accordion>
+  
+  <Accordion title="Must not end with /" icon="stop">
+    Paths never end with a slash, regardless of whether they point to a file or directory.
+    
+    ```
+    ✅ /docs
+    ✅ /docs/file.txt
+    ❌ /docs/
+    ❌ /docs/subfolder/
+    ```
+    
+    <Info>
+    This prevents implementations from guessing whether a path is a directory based solely on the path string. The type of a path cannot be inferred from the path itself.
+    </Info>
+  </Accordion>
+  
+  <Accordion title="No duplicate separators" icon="clone">
+    Multiple consecutive slashes are not allowed.
+    
+    ```
+    ✅ /pics/cats
+    ❌ /pics//cats
+    ❌ /pics///cats
+    ```
+  </Accordion>
+  
+  <Accordion title="Must be valid UTF-8" icon="language">
+    Paths must consist solely of valid UTF-8 characters.
+    
+    ```
+    ✅ /音楽/song.mp3
+    ✅ /música/canción.mp3
+    ❌ (invalid UTF-8 sequences)
+    ```
+  </Accordion>
+  
+  <Accordion title="Must not contain null bytes" icon="times">
+    Null bytes (`\0`) are strictly forbidden in paths.
+    
+    ```
+    ✅ /files/document.txt
+    ❌ /files\0/document.txt
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Character Handling
+
+<Warning>
+**All characters except `/` must be treated as literal parts of the path**, not aliases.
+</Warning>
+
+Special characters like `~` must NOT be interpreted as aliases (e.g., home directory expansion):
+
+```
+✅ /~alice/docs      (literal folder named "~alice")
+❌ /home/alice/docs  (incorrect interpretation of ~)
+
+✅ /$HOME/files      (literal folder named "$HOME") 
+❌ /home/alice/files (incorrect environment variable expansion)
+```
+
+## Path Validation
+
+Implementations must validate paths according to all rules before processing them.
+
+### Validation Checklist
+
+<Steps>
+  <Step title="Check for null bytes">
+    Reject any path containing `\0`.
+  </Step>
+  
+  <Step title="Verify UTF-8 encoding">
+    Ensure the entire path is valid UTF-8.
+  </Step>
+  
+  <Step title="Check leading slash">
+    Path must start with `/`.
+  </Step>
+  
+  <Step title="Check trailing slash">
+    Path must NOT end with `/` (unless it's the root path `/`).
+  </Step>
+  
+  <Step title="Verify separator usage">
+    Check for:
+    - Duplicate slashes (`//`)
+    - Wrong separators (`\`)
+  </Step>
+  
+  <Step title="Check for path traversal">
+    Reject paths containing:
+    - `/./ components`
+    - `/../` components
+    - `/..` at the end
+    - `/.` at the end
+  </Step>
+</Steps>
+
+<Warning>
+Never attempt to "fix" or normalize invalid paths. Always reject them and return an error to the caller.
+</Warning>
+
+## Examples
+
+### Correct vs. Incorrect Paths
+
+| ❌ Incorrect | ✅ Correct | Reason |
+|--------------|-----------|--------|
+| `/foo/../bar` | `/bar` | Contains `..` component |
+| `song.mp3` | `/music/song.mp3` | Missing leading `/` |
+| ` ` | `/` | Empty string (should be root) |
+| `/pics//cats` | `/pics/cats` | Duplicate separators |
+| `/foo/` | `/foo` | Trailing slash |
+| `\pics\dogs` | `/pics/dogs` | Wrong separator |
+| `/docs/./readme` | `/docs/readme` | Contains `.` component |
+| `~/downloads` | `/downloads` or `/~` | `~` treated as alias (should be literal) |
+
+### Valid Path Examples
+
+<CodeGroup>
+```plaintext Root Directory
+/
+```
+
+```plaintext Music Files
+/shared music/Artist Name/Album/01 - Song.mp3
+/music/playlist.m3u
+/音楽/日本の歌.mp3
+```
+
+```plaintext Documents
+/documents/report 2024.pdf
+/docs/project/readme.txt
+/files/résumé.docx
+```
+
+```plaintext Special Characters (Literal)
+/~backup
+/$temp
+/files (copy)
+/@archive
+```
+</CodeGroup>
+
+## Security Considerations
+
+<Warning>
+Strict path validation is critical for security. Never bypass or relax these rules.
+</Warning>
+
+### Path Traversal Prevention
+
+The prohibition on `.` and `..` components prevents path traversal attacks:
+
+```
+❌ /share/../../../etc/passwd  (trying to escape share directory)
+❌ /files/.ssh/id_rsa          (trying to access hidden files)
+```
+
+### Canonicalization
+
+By requiring canonical paths and rejecting non-canonical forms, FriendNet eliminates:
+
+- **Directory traversal exploits** - No `../` allowed
+- **Ambiguous paths** - Only one representation per path
+- **Race conditions** - Path is deterministic
+
+<Info>
+**Why no normalization?** If implementations normalized paths, different implementations might normalize differently, leading to security vulnerabilities and inconsistent behavior. By rejecting invalid paths immediately, all implementations behave identically.
+</Info>
+
+## Protocol Usage
+
+Paths are used in these protocol messages:
+
+<CardGroup cols={2}>
+  <Card title="MSG_TYPE_GET_DIR_FILES" icon="folder-open">
+    Request files in a directory
+    
+    ```protobuf
+    message MsgGetDirFiles {
+        string path = 1;
+    }
+    ```
+  </Card>
+  
+  <Card title="MSG_TYPE_GET_FILE_META" icon="info">
+    Get file metadata
+    
+    ```protobuf
+    message MsgGetFileMeta {
+        string path = 1;
+    }
+    ```
+  </Card>
+  
+  <Card title="MSG_TYPE_GET_FILE" icon="download">
+    Download a file
+    
+    ```protobuf
+    message MsgGetFile {
+        string path = 1;
+        uint64 offset = 2;
+        uint64 limit = 3;
+    }
+    ```
+  </Card>
+  
+  <Card title="MSG_TYPE_SEARCH_RESULT" icon="search">
+    Return search results
+    
+    ```protobuf
+    message MsgSearchResult {
+        string directory_path = 1;
+        MsgFileMeta file = 2;
+        string snippet = 3;
+    }
+    ```
+  </Card>
+</CardGroup>
+
+## Implementation Guidelines
+
+### Validation Function Template
+
+<CodeGroup>
+```go Go Example
+func validatePath(path string) error {
+    // Check for null bytes
+    if strings.Contains(path, "\x00") {
+        return errors.New("path contains null byte")
+    }
+    
+    // Check UTF-8 validity
+    if !utf8.ValidString(path) {
+        return errors.New("path is not valid UTF-8")
+    }
+    
+    // Must start with /
+    if !strings.HasPrefix(path, "/") {
+        return errors.New("path must start with /")
+    }
+    
+    // Must not end with / (except root)
+    if len(path) > 1 && strings.HasSuffix(path, "/") {
+        return errors.New("path must not end with /")
+    }
+    
+    // Check for invalid components
+    parts := strings.Split(path, "/")
+    for _, part := range parts {
+        if part == ".." || part == "." {
+            return errors.New("path contains . or .. component")
+        }
+        if part == "" && len(parts) > 2 {
+            return errors.New("path contains duplicate separator")
+        }
+    }
+    
+    return nil
+}
+```
+
+```python Python Example
+def validate_path(path: str) -> None:
+    """Validate a FriendNet path. Raises ValueError if invalid."""
+    
+    # Check for null bytes
+    if '\x00' in path:
+        raise ValueError("path contains null byte")
+    
+    # Check UTF-8 validity (Python strings are UTF-8)
+    try:
+        path.encode('utf-8')
+    except UnicodeEncodeError:
+        raise ValueError("path is not valid UTF-8")
+    
+    # Must start with /
+    if not path.startswith('/'):
+        raise ValueError("path must start with /")
+    
+    # Must not end with / (except root)
+    if len(path) > 1 and path.endswith('/'):
+        raise ValueError("path must not end with /")
+    
+    # Check for invalid components
+    parts = path.split('/')
+    for part in parts:
+        if part in ('.', '..'):
+            raise ValueError("path contains . or .. component")
+    
+    # Check for duplicate separators
+    if '//' in path:
+        raise ValueError("path contains duplicate separator")
+```
+</CodeGroup>
+
+### Error Handling
+
+When receiving an invalid path in a protocol message:
+
+1. Validate the path immediately
+2. If invalid, respond with `MSG_TYPE_ERROR` and `ERR_TYPE_INVALID_FIELDS`
+3. Include a descriptive error message
+4. Close the stream
+
+```go
+if err := validatePath(msg.Path); err != nil {
+    return bidi.WriteError(
+        pb.ErrType_ERR_TYPE_INVALID_FIELDS,
+        fmt.Sprintf("invalid path: %v", err),
+    )
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Message Layout" icon="code" href="/protocol/message-layout">
+    Learn about file operation messages
+  </Card>
+  
+  <Card title="Protocol Overview" icon="diagram-project" href="/protocol/overview">
+    Return to the protocol overview
+  </Card>
+</CardGroup>

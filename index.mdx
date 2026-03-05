@@ -1,97 +1,151 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: FriendNet Documentation
+description: Self-hosted peer-to-peer file sharing for small groups, no port forwarding needed
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #ffffff 0%, #fff5f5 100%)',
+  borderRadius: '8px',
+  padding: '48px 32px',
+  marginBottom: '32px',
+  textAlign: 'center'
+}}>
+  <h1 style={{
+    fontSize: '48px',
+    fontWeight: '700',
+    color: '#333333',
+    marginBottom: '16px'
+  }}>
+    FriendNet
+  </h1>
+  <p style={{
+    fontSize: '20px',
+    color: '#666666',
+    maxWidth: '700px',
+    margin: '0 auto 32px',
+    lineHeight: '1.6'
+  }}>
+    Self-hosted peer-to-peer file sharing system for small groups with no port forwarding required
+  </p>
+  <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
+    <a 
+      href="/quickstart"
+      style={{
+        background: '#f08080',
+        color: '#ffffff',
+        padding: '12px 24px',
+        borderRadius: '3px',
+        textDecoration: 'none',
+        fontWeight: '500',
+        display: 'inline-block'
+      }}
+    >
+      Get Started
+    </a>
+    <a 
+      href="https://github.com/termermc/FriendNet"
+      style={{
+        background: 'transparent',
+        color: '#000000',
+        padding: '12px 24px',
+        border: '1px solid #dcdcdc',
+        borderRadius: '0px',
+        textDecoration: 'none',
+        fontWeight: '500',
+        display: 'inline-block'
+      }}
+    >
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## What is FriendNet?
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+FriendNet is a self-hosted file sharing system inspired by Soulseek, designed specifically for small groups of friends. It uses a central server to facilitate file search and peer discovery while keeping file downloads peer-to-peer.
 
-## Make it yours
+Unlike traditional P2P systems, FriendNet provides **optional proxied downloads**, allowing users behind restrictive firewalls or VPNs to share files without complicated port forwarding setup.
 
-Design a docs site that looks great and empowers your users.
+## Key Features
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="No Port Forwarding" icon="network-wired">
+    Share files even behind restrictive firewalls with automatic proxy fallback
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Self-Hosted Server" icon="server">
+    Run your own private server with full control over your data
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Fast File Search" icon="magnifying-glass">
+    Search across all shared files in your network instantly
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Private Rooms" icon="users">
+    Organize your network into rooms for different friend groups
   </Card>
-</Columns>
+  <Card title="WebDAV Support" icon="folder-tree">
+    Mount network shares as local drives for seamless file access
+  </Card>
+  <Card title="Direct Connections" icon="bolt">
+    Peer-to-peer downloads for maximum speed when possible
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## How It Works
 
-Everything you need to create world-class documentation.
+FriendNet uses a three-component architecture:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+1. **Server** - Central coordinator that handles authentication, search indexing, and proxy connections
+2. **Desktop Client** - Runs on your computer to share files and includes a built-in web UI
+3. **QUIC Protocol** - Custom protocol over QUIC for secure, fast peer-to-peer communication
 
-## Need inspiration?
+When direct peer-to-peer connections aren't possible, the server automatically proxies file transfers, ensuring everyone can participate regardless of their network setup.
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Quick Links
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in minutes
+  </Card>
+  <Card title="Server Setup" icon="server" href="/server/setup">
+    Deploy your own FriendNet server
+  </Card>
+  <Card title="Client Guide" icon="desktop" href="/client/installation">
+    Install and configure the desktop client
+  </Card>
+  <Card title="Protocol Docs" icon="code" href="/protocol/overview">
+    Technical protocol specification
+  </Card>
+  <Card title="WebDAV Access" icon="folder" href="/features/webdav">
+    Mount shares as network drives
+  </Card>
+  <Card title="Build from Source" icon="hammer" href="/advanced/building-from-source">
+    Compile FriendNet yourself
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+<Accordion title="Private media sharing with friends">
+  Share music, movies, or photos with a small group of trusted friends without relying on cloud services or dealing with large file attachments.
+</Accordion>
+
+<Accordion title="Collaborative file repositories">
+  Create shared repositories for projects, game mods, or creative work where team members can easily discover and download files.
+</Accordion>
+
+<Accordion title="Family file sharing">
+  Set up a private network for family members to share photos, videos, and documents without storage limits or privacy concerns.
+</Accordion>
+
+<Accordion title="Small team collaboration">
+  Provide a simple file sharing solution for small teams that need more control than public cloud services offer.
+</Accordion>
+
+## Project Status
+
+<Warning>
+FriendNet is currently in active development and not yet feature-complete. The protocol and features may change before the 1.0 release.
+</Warning>
+
+## License
+
+FriendNet is licensed under the **AGPL-3.0** license. This means you're free to use, modify, and distribute it, but any modifications or network services must also be open source under the same license.

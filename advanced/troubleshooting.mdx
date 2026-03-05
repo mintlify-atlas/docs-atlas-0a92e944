@@ -1,0 +1,605 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for FriendNet server and client
+---
+
+This guide covers common issues you might encounter when running FriendNet and their solutions.
+
+## Connection Problems
+
+### Server Won't Start
+
+<AccordionGroup>
+  <Accordion title="Port Already in Use" icon="triangle-exclamation">
+    **Symptom:** Server fails to start with an error like `bind: address already in use`
+    
+    **Cause:** Another process is using the server's listen port (default: 20038)
+    
+    **Solution:**
+    
+    1. Find the process using the port:
+    ```bash
+    # Linux/macOS
+    lsof -i :20038
+    
+    # Windows
+    netstat -ano | findstr :20038
+    ```
+    
+    2. Either stop that process or configure FriendNet to use a different port:
+    ```json
+    {
+      "listen": [
+        "0.0.0.0:20039",
+        "[::]:20039"
+      ]
+    }
+    ```
+    
+    Edit your `server.json` configuration file to change the port.
+  </Accordion>
+
+  <Accordion title="Permission Denied" icon="ban">
+    **Symptom:** Error like `permission denied` when starting the server
+    
+    **Cause:** Insufficient permissions to bind to the port or create files
+    
+    **Solution:**
+    
+    1. If using ports below 1024, either:
+       - Use a port >= 1024 (recommended)
+       - Run with appropriate permissions (not recommended)
+    
+    2. Check file permissions for:
+       - Server binary
+       - Database directory
+       - Configuration file directory
+    
+    ```bash
+    # Ensure the binary is executable
+    chmod +x friendnet-server
+    
+    # Check directory permissions
+    ls -la server.db server.json
+    ```
+  </Accordion>
+
+  <Accordion title="Database Locked" icon="lock">
+    **Symptom:** `database is locked` error
+    
+    **Cause:** Another server instance is already running with the same database file
+    
+    **Solution:**
+    
+    1. Check for running server instances:
+    ```bash
+    ps aux | grep friendnet-server
+    ```
+    
+    2. Stop any running instances:
+    ```bash
+    killall friendnet-server
+    ```
+    
+    3. If the problem persists, check for stale lock files:
+    ```bash
+    # Look for -wal or -shm files
+    ls -la server.db*
+    
+    # Remove lock files if server is not running
+    rm server.db-wal server.db-shm
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Client Connection Issues
+
+<AccordionGroup>
+  <Accordion title="Cannot Connect to Server" icon="plug">
+    **Symptom:** Client fails to connect with timeout or connection refused errors
+    
+    **Diagnosis:**
+    
+    1. Verify the server is running:
+    ```bash
+    # Check server process
+    ps aux | grep friendnet-server
+    
+    # Check server is listening
+    netstat -ln | grep 20038
+    ```
+    
+    2. Test connectivity:
+    ```bash
+    # Test if port is reachable
+    telnet server-hostname 20038
+    
+    # Or using nc
+    nc -zv server-hostname 20038
+    ```
+    
+    **Solutions:**
+    
+    - Verify the server address and port in client configuration
+    - Check firewall rules (see [Firewall Issues](#firewall-issues))
+    - Ensure the server's `listen` addresses include the network interface you're connecting through
+    - For IPv6 connections, ensure the server is listening on `[::]` not just `0.0.0.0`
+  </Accordion>
+
+  <Accordion title="TLS/Certificate Errors" icon="certificate">
+    **Symptom:** Errors like `x509: certificate signed by unknown authority` or `certificate has expired`
+    
+    **Cause:** Client doesn't trust the server's self-signed certificate
+    
+    **Solution:**
+    
+    FriendNet uses self-signed certificates by default. You have two options:
+    
+    1. **Use the server's certificate fingerprint** (recommended for self-signed certs)
+    2. **Add the server's CA to your system trust store**
+    
+    The server automatically generates a self-signed certificate on first run (server/cert/selfsigned.go).
+    
+    For development/testing, you can ignore certificate errors, but this is not recommended for production.
+  </Accordion>
+</AccordionGroup>
+
+### RPC Client Issues
+
+<AccordionGroup>
+  <Accordion title="Cannot Connect to RPC Server" icon="terminal">
+    **Symptom:** rpcclient fails with connection errors
+    
+    **Diagnosis:**
+    
+    Check the server's RPC configuration (server/config/config.go:45-62):
+    
+    ```json
+    {
+      "rpc": {
+        "interfaces": [
+          {
+            "address": "unix://friendnet-server.sock",
+            "allowed_methods": ["*"]
+          },
+          {
+            "address": "http://0.0.0.0:8080",
+            "allowed_methods": ["GetRooms", "GetRoomInfo", ...]
+          }
+        ]
+      }
+    }
+    ```
+    
+    **Solutions:**
+    
+    1. **For Unix socket connections:**
+    ```bash
+    # Verify socket exists
+    ls -la friendnet-server.sock
+    
+    # Check socket permissions
+    # Socket should be readable/writable by your user
+    ```
+    
+    2. **For HTTP connections:**
+    ```bash
+    # Test HTTP endpoint
+    curl http://localhost:8080
+    
+    # Verify the command is allowed
+    # Check allowed_methods in server.json
+    ```
+    
+    3. **Address format:**
+    ```bash
+    # Correct formats
+    -addr unix://friendnet-server.sock
+    -addr unix:///absolute/path/to/socket
+    -addr http://127.0.0.1:8080
+    -addr https://example.com:8443
+    ```
+  </Accordion>
+
+  <Accordion title="Method Not Allowed" icon="hand">
+    **Symptom:** Error like `method not allowed` or `permission denied` for specific commands
+    
+    **Cause:** The RPC interface's `allowed_methods` doesn't include the command you're trying to execute
+    
+    **Solution:**
+    
+    Edit your `server.json` to allow the method:
+    
+    ```json
+    {
+      "rpc": {
+        "interfaces": [
+          {
+            "address": "http://0.0.0.0:8080",
+            "allowed_methods": ["*"]  // Allow all methods
+          }
+        ]
+      }
+    }
+    ```
+    
+    <Warning>
+    Allowing all methods (`["*"]`) over HTTP without authentication is a security risk. Only use this for Unix socket interfaces or properly secured HTTP endpoints.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Certificate Issues
+
+### Web UI Certificate Warnings
+
+<AccordionGroup>
+  <Accordion title="Browser Certificate Warning" icon="browser">
+    **Symptom:** Browser shows "Your connection is not private" or similar warning
+    
+    **Cause:** The client's self-signed certificate isn't trusted by your browser
+    
+    **Solution:**
+    
+    Install the FriendNet client root CA:
+    
+    ```bash
+    # Install CA (client will prompt for admin password)
+    ./friendnet-client -installca
+    
+    # Verify installation
+    # Windows: Check Certificate Manager
+    # macOS: Check Keychain Access
+    # Linux: Check /usr/local/share/ca-certificates/
+    ```
+    
+    After installation, restart your browser.
+    
+    The client uses mkcert-style certificate generation (client/cmd/client/main.go:253-306).
+  </Accordion>
+
+  <Accordion title="Certificate Installation Failed" icon="circle-xmark">
+    **Symptom:** `-installca` fails with permission errors
+    
+    **Solution:**
+    
+    1. **Windows:** Run as Administrator
+    2. **macOS:** Enter admin password when prompted
+    3. **Linux:** Run with sudo or install manually
+    
+    Manual installation on Linux:
+    ```bash
+    # Copy the CA certificate
+    sudo cp ~/.local/share/friendnet/rootCA.pem \
+      /usr/local/share/ca-certificates/friendnet-ca.crt
+    
+    # Update CA certificates
+    sudo update-ca-certificates
+    ```
+  </Accordion>
+
+  <Accordion title="Certificate Already Expired" icon="clock">
+    **Symptom:** Certificate shows as expired even after regeneration
+    
+    **Cause:** Old certificate cached by browser or system
+    
+    **Solution:**
+    
+    1. Uninstall old certificate:
+    ```bash
+    ./friendnet-client -uninstallca
+    ```
+    
+    2. Clear browser cache and certificates
+    
+    3. Delete client database to force regeneration:
+    ```bash
+    # Backup first!
+    rm -rf ~/.local/share/friendnet/client.db
+    ```
+    
+    4. Reinstall certificate:
+    ```bash
+    ./friendnet-client -installca
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Port Conflicts
+
+### Multiple Instances
+
+<Accordion title="Client Already Running" icon="copy">
+  **Symptom:** Can't start second client instance, or ports are already in use
+  
+  **Cause:** FriendNet client uses a lock file to prevent multiple instances
+  
+  **Solution:**
+  
+  1. Check for running client (client/cmd/client/main.go:213-234):
+  ```bash
+  # Find client process
+  ps aux | grep friendnet-client
+  
+  # Check lock file
+  cat ~/.local/share/friendnet/client-lock.json
+  ```
+  
+  2. If client isn't actually running but lock exists:
+  ```bash
+  # Remove stale lock
+  rm ~/.local/share/friendnet/client-lock.json
+  ```
+  
+  3. Run in headless mode with custom ports:
+  ```bash
+  ./friendnet-client -headless \
+    -rpcaddr https://localhost:20050 \
+    -fileaddr https://localhost:20051 \
+    -uiaddr https://localhost:20052 \
+    -davaddr https://localhost:20053 \
+    -nolock
+  ```
+</Accordion>
+
+### Firewall Issues
+
+<AccordionGroup>
+  <Accordion title="Firewall Blocking Connections" icon="shield">
+    **Symptom:** Local connections work but remote connections fail
+    
+    **Solution:**
+    
+    Configure your firewall to allow FriendNet traffic:
+    
+    **Linux (ufw):**
+    ```bash
+    # Server
+    sudo ufw allow 20038/tcp
+    
+    # RPC (if exposed)
+    sudo ufw allow 8080/tcp
+    ```
+    
+    **Linux (firewalld):**
+    ```bash
+    sudo firewall-cmd --permanent --add-port=20038/tcp
+    sudo firewall-cmd --reload
+    ```
+    
+    **Windows Firewall:**
+    ```powershell
+    New-NetFirewallRule -DisplayName "FriendNet Server" `
+      -Direction Inbound -Protocol TCP -LocalPort 20038 -Action Allow
+    ```
+    
+    **macOS:**
+    ```bash
+    # Add to /etc/pf.conf
+    pass in proto tcp to port 20038
+    
+    # Reload firewall
+    sudo pfctl -f /etc/pf.conf
+    ```
+  </Accordion>
+
+  <Accordion title="Router/NAT Issues" icon="router">
+    **Symptom:** Can't connect from outside local network
+    
+    **Solution:**
+    
+    FriendNet is designed to work without port forwarding through proxied connections, but for direct connections:
+    
+    1. **Port forward** 20038 to your server's local IP in your router settings
+    2. **Use UPnP** if your router supports it (FriendNet has UPnP support)
+    3. **Use proxied mode** - no port forwarding needed
+    
+    Check your connection methods in the configuration.
+  </Accordion>
+</AccordionGroup>
+
+## Performance Issues
+
+### High Memory Usage
+
+<Accordion title="Server Using Too Much Memory" icon="memory">
+  **Symptom:** Server process consumes excessive memory
+  
+  **Diagnosis:**
+  
+  Enable CPU profiling to diagnose (client/cmd/client/main.go:135-158):
+  ```bash
+  ./friendnet-server -pproffile cpu.pprof
+  ```
+  
+  Analyze the profile:
+  ```bash
+  go tool pprof cpu.pprof
+  ```
+  
+  **Common causes:**
+  
+  1. Too many concurrent connections
+  2. Large file transfers
+  3. Database query issues
+  
+  **Solutions:**
+  
+  - Monitor active connections using rpcclient
+  - Restart the server periodically
+  - Check database size and run VACUUM if needed
+</Accordion>
+
+### Slow Database Performance
+
+<Accordion title="Database Operations Slow" icon="database">
+  **Symptom:** Slow responses from server, especially for search and account operations
+  
+  **Solution:**
+  
+  1. **Vacuum the database:**
+  ```bash
+  sqlite3 server.db 'VACUUM;'
+  ```
+  
+  2. **Analyze the database:**
+  ```bash
+  sqlite3 server.db 'ANALYZE;'
+  ```
+  
+  3. **Check database size:**
+  ```bash
+  ls -lh server.db
+  ```
+  
+  4. **Check for missing indexes:**
+  ```bash
+  sqlite3 server.db '.schema'
+  ```
+  
+  The database migrations (server/storage/migration/) should create appropriate indexes automatically.
+</Accordion>
+
+## Debug Flags and Profiling
+
+### CPU Profiling
+
+Enable CPU profiling to diagnose performance issues:
+
+```bash
+# Client
+./friendnet-client -pproffile cpu.pprof
+
+# Run your workload, then stop the client
+# Analyze the profile
+go tool pprof cpu.pprof
+
+# Interactive commands in pprof:
+(pprof) top10        # Show top 10 functions by CPU time
+(pprof) list funcname # Show source code for function
+(pprof) web          # Generate visual graph (requires graphviz)
+```
+
+The profiling flag is implemented in client/cmd/client/main.go:135-158.
+
+### Logging
+
+Both server and client use structured JSON logging with slog:
+
+**Server logging (server/cmd/server/main.go:28-30):**
+```go
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+```
+
+**Client logging (client/cmd/client/main.go:244-251):**
+```go
+logHandler := clog.NewHandler(store, runId,
+    slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+        Level: slog.LevelDebug,
+    }),
+)
+```
+
+Redirect logs to a file for analysis:
+```bash
+./friendnet-server > server.log 2>&1
+```
+
+## Log Locations
+
+### Server Logs
+
+By default, the server logs to stdout. Redirect to a file:
+
+```bash
+# With systemd
+# Logs go to journalctl
+journalctl -u friendnet-server -f
+
+# Manual redirect
+./friendnet-server > /var/log/friendnet-server.log 2>&1
+```
+
+### Client Logs
+
+Client logs are stored in the database and also output to stdout:
+
+**Log storage (client/storage/migration/20260222_add_log.go):**
+- Database: `~/.local/share/friendnet/client.db`
+- Table: `log` (contains structured log entries)
+
+View recent logs:
+```bash
+./friendnet-client > client.log 2>&1
+tail -f client.log | grep ERROR
+```
+
+### Log Query
+
+Query client logs from the database:
+
+```sql
+sqlite3 ~/.local/share/friendnet/client.db
+
+-- Recent errors
+SELECT time, level, message 
+FROM log 
+WHERE level = 'ERROR' 
+ORDER BY time DESC 
+LIMIT 20;
+
+-- Logs from specific run
+SELECT * FROM log WHERE run_id = 1234567890;
+```
+
+## Getting Help
+
+If you've tried the solutions above and still have issues:
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/yourusername/friendnet/issues">
+    Report bugs and request features
+  </Card>
+  <Card title="Discussions" icon="comments" href="https://github.com/yourusername/friendnet/discussions">
+    Ask questions and share solutions
+  </Card>
+  <Card title="Documentation" icon="book" href="/introduction">
+    Review the full documentation
+  </Card>
+  <Card title="Building from Source" icon="hammer" href="/advanced/building-from-source">
+    Build the latest version
+  </Card>
+</CardGroup>
+
+### Information to Include
+
+When reporting issues, include:
+
+1. **Version information:**
+   ```bash
+   ./friendnet-server -version  # If implemented
+   go version
+   ```
+
+2. **Configuration files** (redact sensitive data):
+   ```bash
+   cat server.json
+   ```
+
+3. **Error messages and logs:**
+   ```bash
+   ./friendnet-server 2>&1 | tee error.log
+   ```
+
+4. **System information:**
+   ```bash
+   uname -a
+   cat /etc/os-release  # Linux
+   ```
+
+5. **Network configuration** (if connection issues):
+   ```bash
+   netstat -ln | grep 20038
+   ```

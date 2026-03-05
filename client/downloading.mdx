@@ -1,0 +1,411 @@
+---
+title: Downloading Files
+description: Download files from peers with direct and proxied connections
+---
+
+## Downloading Files
+
+FriendNet provides multiple ways to download files from other users' shares.
+
+## Download Methods
+
+### Browser Downloads
+
+The simplest way to download files is through the web UI:
+
+1. Browse or search for a file
+2. Click the 💾 download icon
+3. Your browser will download the file
+
+### File URLs
+
+Files are accessed through the file server using a specific URL format:
+
+```typescript
+function makeFileUrl(
+    base: string,
+    serverUuid: string,
+    username: string,
+    path: string,
+    options: {
+        download?: boolean
+        allowCache?: boolean
+        zip?: boolean
+    } = {},
+): string
+```
+
+**Example URL:**
+
+```
+https://localhost:20041/content/{serverUuid}/{username}/path/to/file.txt?download=1
+```
+
+### Query Parameters
+
+<ParamField path="download" type="boolean" default="false">
+  Signals to the browser to download the file instead of displaying it
+</ParamField>
+
+<ParamField path="allowCache" type="boolean" default="false">
+  Allows the browser to cache the file for 10 minutes
+</ParamField>
+
+<ParamField path="zip" type="boolean" default="false">
+  Downloads a directory as a ZIP archive
+</ParamField>
+
+## Downloading Folders
+
+You can download entire folders as ZIP archives:
+
+1. Navigate to a folder in the browse view
+2. Click "💾 Download Folder"
+3. The folder contents are streamed as a ZIP file
+
+### Folder ZIP Implementation
+
+The server streams directory contents as a ZIP file:
+
+```go
+if meta.IsDir {
+    doZip := url.Query().Has("zip")
+    if !doZip {
+        text(w, r, http.StatusNotImplemented, 
+            "Path points to a directory.\n\nTo download the directory's content as a zip, specify ?zip=1.\n")
+        return
+    }
+    
+    w.Header().Set("Content-Type", "application/zip")
+    w.Header().Set("Content-Disposition", 
+        fmt.Sprintf(`attachment; filename="%s.zip"`, meta.Name))
+}
+```
+
+The ZIP is created on-the-fly:
+
+- Files are streamed as they're zipped (no need to buffer the entire folder)
+- Directory structure is preserved in the ZIP
+- Works with folders of any size
+
+## Direct vs Proxied Connections
+
+### Proxied Connections (Default)
+
+By default, file downloads are proxied through the FriendNet server:
+
+```
+Your Client → Server → Peer Client → File
+```
+
+**Advantages:**
+- Works even if peers can't connect directly
+- No firewall or NAT configuration needed
+- More private (peers don't see your IP address)
+
+**Disadvantages:**
+- Uses server bandwidth
+- May be slower than direct connections
+- Server acts as a bottleneck
+
+### Direct Connections (P2P)
+
+With direct connections enabled, clients connect peer-to-peer:
+
+```
+Your Client ←→ Peer Client → File
+```
+
+**Advantages:**
+- Much faster transfers
+- No server bandwidth usage
+- Lower latency
+
+**Disadvantages:**
+- Requires proper network configuration
+- May not work behind strict NAT/firewalls
+- Exposes your IP address to peers
+
+## Configuring Direct Connections
+
+Navigate to Settings (`/settings`) to configure P2P direct connections:
+
+### Basic Settings
+
+<ParamField path="Disable direct connections" type="boolean" default="false">
+  Completely disable P2P and use only proxied connections
+</ParamField>
+
+<ParamField path="Default port" type="number" default="20048">
+  The port to use for direct connections. Set to 0 for a random port.
+  
+  <Info>
+    Using a consistent port (≥1024) is recommended for reliability.
+  </Info>
+</ParamField>
+
+### Advanced Settings
+
+<ParamField path="Manually listen on these addresses" type="string[]">
+  Specific addresses to listen on (e.g., `0.0.0.0:20048`, `[::]:20048`)
+  
+  ```tsx
+  <input
+      type="text"
+      placeholder="ex: 0.0.0.0:20048, [::]:20048"
+      value={pendingAddr()}
+  />
+  ```
+</ParamField>
+
+<ParamField path="Disable probing for IPs to advertise" type="boolean" default="false">
+  Disable automatic detection of local IPs to advertise to peers
+</ParamField>
+
+<ParamField path="Advertise private IPs" type="boolean" default="false">
+  Advertise private IP addresses (192.168.x.x, 10.x.x.x, etc.)
+  
+  <Info>
+    Only useful when multiple clients are on the same LAN or VPN.
+  </Info>
+</ParamField>
+
+<ParamField path="Disable public IP discovery" type="boolean" default="false">
+  Don't query servers for your public IP address
+</ParamField>
+
+<ParamField path="Disable UPnP" type="boolean" default="false">
+  Disable automatic port forwarding via UPnP
+</ParamField>
+
+<ParamField path="UPnP timeout" type="number" default="10000">
+  UPnP discovery timeout in milliseconds
+</ParamField>
+
+### Applying Settings
+
+```tsx
+await client.updateDirectSettings({
+    settings: {
+        disable: disable(),
+        addresses: addrs(),
+        defaultPort: defaultPort(),
+        disableProbeIpsToAdvertise: disableProbe(),
+        advertisePrivateIps: adPrivate(),
+        disablePublicIpDiscovery: disablePublicIpDiscovery(),
+        disableUpnp: disableUpnp(),
+        upnpTimeoutMs: upnpTimeoutMs(),
+    },
+})
+```
+
+<Warning>
+  After changing P2P settings, you must restart the client for changes to take effect.
+</Warning>
+
+## Connection Methods
+
+The client supports multiple connection methods:
+
+```go
+connMethodSupport, err := machine.ProbeConnMethodSupport()
+```
+
+Supported connection protocols:
+
+- **TCP over IPv4** - Standard TCP connections
+- **TCP over IPv6** - IPv6 TCP connections  
+- **QUIC over IPv4** - Modern QUIC protocol (HTTP/3)
+- **QUIC over IPv6** - QUIC over IPv6
+
+## Download Manager
+
+Browser downloads are handled by your browser's built-in download manager. Files are saved to your default download location.
+
+### Concurrent Downloads
+
+You can download multiple files simultaneously:
+
+- Each download runs independently
+- No artificial limits on concurrent downloads
+- Limited by your network bandwidth and browser settings
+
+### Resume Support
+
+The file server supports HTTP range requests for resumable downloads:
+
+```go
+// Parse range header
+rangeHeader := r.Header.Get("Range")
+fileSize := int64(meta.Size)
+offset, limit, rangeOk := common.ParseHttpRange(rangeHeader, fileSize)
+
+if rangeHeader != "" {
+    w.WriteHeader(http.StatusPartialContent)
+}
+
+w.Header().Set("Content-Range", 
+    fmt.Sprintf("bytes %d-%d/%d", offset, end, fileSize))
+```
+
+Browsers can automatically resume interrupted downloads if supported.
+
+## Download Location Settings
+
+### Browser Configuration
+
+Download locations are controlled by your browser settings:
+
+**Chrome/Edge:**
+1. Settings → Downloads
+2. Set download location
+3. Choose whether to prompt for each download
+
+**Firefox:**
+1. Settings → General → Files and Applications
+2. Set download folder
+3. Configure save/ask behavior
+
+**Safari:**
+1. Preferences → General
+2. Set file download location
+
+### WebDAV Access
+
+For more control over file access, use the WebDAV server:
+
+```
+https://localhost:20043
+```
+
+Mount peer shares as network drives:
+
+**Windows:**
+```
+Map Network Drive → \\localhost@20043\{server}\{username}
+```
+
+**macOS:**
+```
+Finder → Go → Connect to Server → https://localhost:20043
+```
+
+**Linux:**
+```bash
+mount -t davfs https://localhost:20043/{server}/{username} /mnt/friendnet
+```
+
+This allows you to:
+
+- Browse files like a local filesystem
+- Copy files with your file manager
+- Use command-line tools
+- Stream media directly
+
+## Caching
+
+By default, files are not cached by your browser:
+
+```go
+if url.Query().Has("allowCache") {
+    w.Header().Set("Cache-Control", "private, max-age=600, must-revalidate")
+    w.Header().Set("Expires", time.Now().Add(10*time.Minute).Format(http.TimeFormat))
+} else {
+    w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+}
+```
+
+To enable caching for a file, add `?allowCache=1` to the URL. This caches the file for 10 minutes.
+
+<Tip>
+  Enable caching for frequently accessed files to reduce network usage and improve performance.
+</Tip>
+
+## Security Headers
+
+Files served from peers have strict security headers:
+
+```go
+w.Header().Set("Content-Security-Policy", 
+    "default-src 'none'; frame-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; media-src 'self' data:; base-uri 'none'; form-action 'none'; sandbox")
+w.Header().Set("X-Content-Type-Options", "nosniff")
+w.Header().Set("Referrer-Policy", "no-referrer")
+```
+
+This prevents:
+
+- JavaScript execution from peer files
+- Form submissions
+- Iframe embedding
+- MIME type sniffing
+
+<Warning>
+  For security, peer-served files are sandboxed and cannot execute scripts or access your data.
+</Warning>
+
+## Performance Tips
+
+<Tip>
+  **Enable Direct Connections**: Configure P2P settings for significantly faster downloads, especially for large files.
+</Tip>
+
+<Tip>
+  **Use UPnP**: If your router supports it, enable UPnP for automatic port forwarding and better direct connection reliability.
+</Tip>
+
+<Tip>
+  **Consistent Port**: Use a fixed port (≥1024) instead of random ports for more reliable peer connectivity.
+</Tip>
+
+<Tip>
+  **WebDAV for Large Transfers**: For downloading many files, mount shares via WebDAV and use your file manager for better control.
+</Tip>
+
+## Troubleshooting
+
+### Slow Downloads
+
+- Enable direct connections in Settings
+- Check your network bandwidth
+- Verify the peer has sufficient upload bandwidth
+- Try downloading at a different time
+
+### Failed Downloads
+
+- Check that the peer is still online
+- Verify the file still exists (may have been unshared)
+- Check your disk space
+- Review logs at `/logs` for errors
+
+### Direct Connection Issues
+
+- Ensure your firewall allows the configured port
+- Check that UPnP is working (or manually forward ports)
+- Verify your router supports the connection method
+- Try advertising private IPs if on the same LAN
+
+### "Peer Unreachable" Errors
+
+```go
+if errors.Is(err, protocol.ErrPeerUnreachable) {
+    text(w, r, http.StatusBadGateway, "peer unreachable\n")
+    return nil
+}
+```
+
+This means:
+
+- The peer is offline or disconnected
+- Network connectivity issues
+- The server can't relay the connection
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Share Your Files" icon="share" href="/client/sharing-files">
+    Learn how to share your own folders
+  </Card>
+  <Card title="Search" icon="magnifying-glass" href="/client/searching">
+    Find files efficiently with search
+  </Card>
+</CardGroup>

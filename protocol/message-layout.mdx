@@ -1,0 +1,289 @@
+---
+title: Message Layout
+description: Binary encoding format and structure of FriendNet protocol messages
+---
+
+Every FriendNet protocol message follows a consistent binary layout that allows for efficient parsing and type identification.
+
+## Message Structure
+
+Protocol messages are encoded with the following layout:
+
+<Steps>
+  <Step title="Message Type (Bytes 0-3)">
+    A `uint32` in little-endian format representing the message type from the `MsgType` enum.
+  </Step>
+  
+  <Step title="Payload Length (Bytes 4-7)">
+    A `uint32` in little-endian format indicating the payload size in bytes.
+  </Step>
+  
+  <Step title="Payload (Bytes 8+)">
+    The protobuf-encoded message payload corresponding to the message type.
+  </Step>
+</Steps>
+
+### Visual Representation
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Byte Range  │  Field          │  Type                  │
+├─────────────────────────────────────────────────────────┤
+│  0-3         │  Message Type   │  uint32 (little-endian)│
+│  4-7         │  Payload Length │  uint32 (little-endian)│
+│  8-?         │  Payload        │  Protobuf bytes        │
+└─────────────────────────────────────────────────────────┘
+```
+
+<Note>
+The message header (8 bytes) uses a fixed format that **will not change between protocol versions**, ensuring forward and backward compatibility for message parsing.
+</Note>
+
+## Message Types
+
+The message type is a value from the `MsgType` enum defined in the protocol. Common message types include:
+
+### Connection & Lifecycle
+
+<AccordionGroup>
+  <Accordion title="MSG_TYPE_PING (1)" icon="signal">
+    Ping message sent by either client or server. Must be responded to with `MSG_TYPE_PONG`.
+    
+    **Payload**: `MsgPing` - Contains a timestamp for latency measurement.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_PONG (2)" icon="reply">
+    Response to `MSG_TYPE_PING`.
+    
+    **Payload**: `MsgPong` - Contains a timestamp for latency measurement.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_ACKNOWLEDGED (3)" icon="check">
+    General acknowledgement of success.
+    
+    **Payload**: `MsgAcknowledged` - Empty message.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_ERROR (4)" icon="exclamation-triangle">
+    Error message sent as a reply to other messages.
+    
+    **Payload**: `MsgError` - Contains error type and optional message.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_BYE (20)" icon="door-open">
+    Notification that the client is disconnecting gracefully.
+    
+    **Payload**: `MsgBye` - Empty message.
+  </Accordion>
+</AccordionGroup>
+
+### Version & Authentication
+
+<AccordionGroup>
+  <Accordion title="MSG_TYPE_VERSION (5)" icon="code-branch">
+    **[C2S]** Initial version negotiation from client.
+    
+    **Payload**: `MsgVersion` - Contains client's protocol version.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_VERSION_ACCEPTED (6)" icon="check-circle">
+    **[S2C]** Server accepts the client's protocol version.
+    
+    **Payload**: `MsgVersionAccepted` - Contains server's protocol version.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_VERSION_REJECTED (7)" icon="times-circle">
+    **[S2C]** Server rejects the client's protocol version.
+    
+    **Payload**: `MsgVersionRejected` - Contains rejection reason and server version.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_AUTHENTICATE (8)" icon="key">
+    **[C2S]** Client authentication request.
+    
+    **Payload**: `MsgAuthenticate` - Contains room, username, and password.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_AUTH_ACCEPTED (9)" icon="unlock">
+    **[S2C]** Authentication successful.
+    
+    **Payload**: `MsgAuthAccepted` - Empty message.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_AUTH_REJECTED (10)" icon="lock">
+    **[S2C]** Authentication rejected.
+    
+    **Payload**: `MsgAuthRejected` - Contains rejection reason and optional message.
+  </Accordion>
+</AccordionGroup>
+
+### File Operations
+
+<AccordionGroup>
+  <Accordion title="MSG_TYPE_GET_DIR_FILES (13)" icon="folder-open">
+    **[C2C]** Request to list files in a directory.
+    
+    **Payload**: `MsgGetDirFiles` - Contains the directory path.
+    
+    **Expected Response**: Repeated `MSG_TYPE_DIR_FILES` messages until stream closed.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_DIR_FILES (14)" icon="list">
+    **[C2C]** List of files in a directory.
+    
+    **Payload**: `MsgDirFiles` - Contains array of file metadata.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_GET_FILE_META (15)" icon="info-circle">
+    **[C2C]** Request metadata about a file without reading it.
+    
+    **Payload**: `MsgGetFileMeta` - Contains the file path.
+    
+    **Expected Response**: `MSG_TYPE_FILE_META` or `ERR_TYPE_FILE_NOT_EXIST`.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_FILE_META (16)" icon="file">
+    **[C2C]** File metadata response.
+    
+    **Payload**: `MsgFileMeta` - Contains name, size, and whether it's a directory.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_GET_FILE (17)" icon="download">
+    **[C2C]** Request a file's metadata and contents.
+    
+    **Payload**: `MsgGetFile` - Contains path, offset, and limit.
+    
+    **Expected Response**: `MSG_TYPE_FILE_META` followed by binary file content.
+  </Accordion>
+</AccordionGroup>
+
+### Proxy & Direct Connections
+
+<AccordionGroup>
+  <Accordion title="MSG_TYPE_OPEN_OUTBOUND_PROXY (11)" icon="exchange-alt">
+    **[C2S]** Request to open a proxy stream to another peer.
+    
+    **Payload**: `MsgOpenOutboundProxy` - Contains target username.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_INBOUND_PROXY (12)" icon="inbox">
+    **[S2C]** Notification of new inbound proxy stream.
+    
+    **Payload**: `MsgInboundProxy` - Contains origin username.
+  </Accordion>
+  
+  <Accordion title="MSG_TYPE_DIRECT_CONN_HANDSHAKE (34)" icon="handshake">
+    **[C2C, S2C]** Handshake for direct peer-to-peer connections.
+    
+    **Payload**: `MsgDirectConnHandshake` - Contains method ID and authentication token.
+  </Accordion>
+</AccordionGroup>
+
+## Protobuf Payload Structure
+
+The payload is always a protobuf message that corresponds to the message type's enum name. The mapping follows this pattern:
+
+<CodeGroup>
+```plaintext Example Mapping
+Message Type: MSG_TYPE_ERROR (4)
+Payload Type: MsgError
+
+Message Type: MSG_TYPE_AUTHENTICATE (8)
+Payload Type: MsgAuthenticate
+
+Message Type: MSG_TYPE_PING (1)
+Payload Type: MsgPing
+```
+
+```protobuf Example: MsgPing
+message MsgPing {
+    // The epoch millisecond timestamp when the message was sent.
+    // Used to measure latency.
+    int64 sent_ts = 1;
+}
+```
+
+```protobuf Example: MsgError
+message MsgError {
+    // The error type.
+    ErrType type = 1;
+
+    // The error message (optional).
+    optional string message = 2;
+}
+```
+
+```protobuf Example: MsgAuthenticate
+message MsgAuthenticate {
+    // The room the user is trying to authenticate with.
+    string room = 1;
+
+    // The user's username.
+    string username = 2;
+
+    // The user's password.
+    string password = 3;
+}
+```
+</CodeGroup>
+
+## Error Types
+
+When a message type is `MSG_TYPE_ERROR`, the payload is a `MsgError` containing one of these error types:
+
+| Error Type | Code | Description |
+|------------|------|-------------|
+| `ERR_TYPE_INTERNAL` | 1 | An internal error occurred |
+| `ERR_TYPE_MALFORMED_MESSAGE` | 2 | Invalid message received |
+| `ERR_TYPE_PAYLOAD_TOO_LARGE` | 3 | Message payload exceeded size limit |
+| `ERR_TYPE_MISSING_FIELDS` | 4 | Required field was missing |
+| `ERR_TYPE_INVALID_FIELDS` | 5 | Invalid field value received |
+| `ERR_TYPE_UNEXPECTED_MSG_TYPE` | 6 | Message type was unexpected |
+| `ERR_TYPE_RATE_LIMITED` | 7 | Request was rate limited |
+| `ERR_TYPE_FILE_NOT_EXIST` | 8 | File does not exist |
+| `ERR_TYPE_UNIMPLEMENTED` | 9 | Functionality not implemented |
+| `ERR_TYPE_PERMISSION_DENIED` | 10 | Permission denied |
+| `ERR_TYPE_PATH_NOT_DIRECTORY` | 11 | Path does not point to a directory |
+| `ERR_TYPE_CLIENT_NOT_ONLINE` | 12 | Client is not online |
+
+## Implementation Notes
+
+<Warning>
+The message layout format (8-byte header + protobuf payload) is fixed and **must not change between versions**. This ensures all implementations can parse message headers regardless of protocol version.
+</Warning>
+
+<Info>
+While the header format is stable, the protocol-defined data following a message may change between versions. Always check the protocol version before interpreting message payloads.
+</Info>
+
+### Parsing Example (Conceptual)
+
+```go
+// Read 8-byte header
+header := make([]byte, 8)
+stream.Read(header)
+
+// Parse type and length (little-endian)
+msgType := binary.LittleEndian.Uint32(header[0:4])
+payloadLen := binary.LittleEndian.Uint32(header[4:8])
+
+// Read payload
+payload := make([]byte, payloadLen)
+stream.Read(payload)
+
+// Unmarshal protobuf based on message type
+msg := createMessageForType(msgType)
+proto.Unmarshal(payload, msg)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Protocol Overview" icon="diagram-project" href="/protocol/overview">
+    Return to the protocol overview
+  </Card>
+  
+  <Card title="Version Negotiation" icon="handshake" href="/protocol/version-negotiation">
+    Learn about version negotiation
+  </Card>
+</CardGroup>

@@ -1,122 +1,112 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "FriendNet",
+  "theme": "almond",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#f47a7a",
+    "light": "#f47a7a",
+    "dark": "#f47a7a"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/c4b72e2e-a212-4baf-b01b-b4f7a02eb463.png",
+  "logo": {
+    "light": "/logo-dark.png",
+    "dark": "/logo-dark.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/termermc/FriendNet"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/termermc/FriendNet"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Server",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "server/setup",
+              "server/configuration",
+              "server/administration"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Client",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "client/installation",
+              "client/getting-started",
+              "client/sharing-files",
+              "client/searching",
+              "client/downloading"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Features",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "features/rooms",
+              "features/direct-connections",
+              "features/proxy-mode",
+              "features/webdav"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/building-from-source",
+              "advanced/cli-tools",
+              "advanced/troubleshooting"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Protocol",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Protocol Documentation",
             "pages": [
-              "api-reference/introduction"
+              "protocol/overview",
+              "protocol/message-layout",
+              "protocol/version-negotiation",
+              "protocol/authentication",
+              "protocol/paths"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "API Reference",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/client-rpc",
+              "api/server-rpc"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/architecture",
+              "development/building",
+              "development/contributing"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

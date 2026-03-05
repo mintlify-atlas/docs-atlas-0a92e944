@@ -1,0 +1,200 @@
+---
+title: Installation
+description: Install and configure the FriendNet client
+---
+
+## System Requirements
+
+The FriendNet client runs on:
+
+- **Linux** - Any modern distribution
+- **macOS** - macOS 10.13 or later
+- **Windows** - Windows 10 or later
+
+## Installation Methods
+
+### Binary Installation
+
+Download the pre-built binary for your platform from the [releases page](https://github.com/friendnet/friendnet/releases).
+
+### Building from Source
+
+Requires Go 1.21 or later:
+
+```bash
+git clone https://github.com/friendnet/friendnet.git
+cd friendnet/client
+go build -o friendnet-client ./cmd/client
+```
+
+## Command-Line Flags
+
+The client supports the following command-line options:
+
+<ParamField path="-datadir" type="string" default="OS default">
+  Path to the client data directory where configuration and database files are stored
+</ParamField>
+
+<ParamField path="-rpcaddr" type="string" default="https://localhost:20040">
+  RPC server address for client API communication
+</ParamField>
+
+<ParamField path="-fileaddr" type="string" default="https://localhost:20041">
+  File server address for serving peer files
+</ParamField>
+
+<ParamField path="-uiaddr" type="string" default="https://localhost:20042">
+  Web UI server address
+</ParamField>
+
+<ParamField path="-davaddr" type="string" default="https://localhost:20043">
+  WebDAV server address for mounting shares
+</ParamField>
+
+<ParamField path="-nobrowser" type="boolean" default="false">
+  Do not automatically open the web UI in your browser
+</ParamField>
+
+<ParamField path="-nolock" type="boolean" default="false">
+  Do not use a lock to prevent multiple instances of the client from running
+</ParamField>
+
+<ParamField path="-headless" type="boolean" default="false">
+  Run client in headless mode (RPC-only, no web UI, no locking, no GUI or browser functionality). Not available on Windows.
+</ParamField>
+
+<ParamField path="-installca" type="boolean" default="false">
+  Install the client's root CA certificate for HTTPS on the web UI
+</ParamField>
+
+<ParamField path="-uninstallca" type="boolean" default="false">
+  Uninstall the client's root CA certificate
+</ParamField>
+
+<ParamField path="-resettoken" type="boolean" default="false">
+  Reset the bearer token for the RPC server
+</ParamField>
+
+### Example Usage
+
+```bash
+# Run with default settings
+./friendnet-client
+
+# Run in headless mode on a custom port
+./friendnet-client -headless -rpcaddr https://localhost:8080
+
+# Run with custom data directory
+./friendnet-client -datadir /path/to/data
+```
+
+## First-Time Setup
+
+### CA Certificate Installation
+
+The FriendNet client web UI requires HTTPS and uses a self-signed certificate. On first run:
+
+<Steps>
+  <Step title="Automatic Installation (Windows)">
+    On Windows, the client will automatically prompt you to install the CA certificate:
+    
+    <Info>
+      You may need to restart your browser after installation for the certificate to take effect.
+    </Info>
+  </Step>
+  
+  <Step title="Manual Installation (macOS/Linux)">
+    On macOS and Linux, you need to manually install the CA certificate:
+    
+    ```bash
+    ./friendnet-client -installca
+    ```
+    
+    This installs the certificate to your system's trust store.
+  </Step>
+  
+  <Step title="Verify Installation">
+    After installation, you should be able to access the web UI without certificate warnings.
+  </Step>
+</Steps>
+
+<Warning>
+  If you don't install the CA certificate, your browser will show security warnings when accessing the web UI.
+</Warning>
+
+### Data Directory
+
+The client stores its data in a platform-specific location:
+
+- **Linux**: `~/.local/share/friendnet-client/`
+- **macOS**: `~/Library/Application Support/friendnet-client/`
+- **Windows**: `%APPDATA%\friendnet-client\`
+
+The data directory contains:
+
+- `client.db` - SQLite database with client configuration and state
+- Certificate files for HTTPS
+- Connection logs and settings
+
+## Accessing the Web UI
+
+Once the client is running, it will automatically open the web UI in your default browser. The default URL is:
+
+```
+https://localhost:20042
+```
+
+The URL includes authentication parameters:
+
+```
+https://localhost:20042?rpc=https://localhost:20040&token=YOUR_BEARER_TOKEN
+```
+
+<Info>
+  The bearer token is automatically generated on first run and stored in the database. You can reset it using the `-resettoken` flag.
+</Info>
+
+## Running Multiple Instances
+
+By default, the client uses a lock file to prevent multiple instances from running simultaneously. When you try to start a second instance:
+
+```go
+locker := &Locker{
+    lockDir: dataDir,
+}
+lockData := locker.CheckLock()
+if lockData != nil {
+    println("Client is already running")
+    // Opens the web UI in browser
+    return
+}
+```
+
+To disable this behavior and run multiple instances (e.g., for testing), use the `-nolock` flag:
+
+```bash
+./friendnet-client -nolock -datadir /path/to/instance1 -rpcaddr https://localhost:20040
+./friendnet-client -nolock -datadir /path/to/instance2 -rpcaddr https://localhost:20050
+```
+
+## Architecture Overview
+
+The client runs four internal servers:
+
+1. **RPC Server** (`-rpcaddr`) - Connect-RPC API for client management
+2. **File Server** (`-fileaddr`) - Proxies files from peers via HTTPS
+3. **Web UI Server** (`-uiaddr`) - Serves the web interface
+4. **WebDAV Server** (`-davaddr`) - Allows mounting peer shares as network drives
+
+All servers use HTTPS with automatically generated certificates.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="rocket" href="/client/getting-started">
+    Connect to your first server and explore the interface
+  </Card>
+  <Card title="Sharing Files" icon="share" href="/client/sharing-files">
+    Learn how to share your folders with other users
+  </Card>
+</CardGroup>

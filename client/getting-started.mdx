@@ -1,0 +1,268 @@
+---
+title: Getting Started
+description: Connect to servers and navigate the FriendNet client
+---
+
+## Connecting to a Server
+
+To start using FriendNet, you need to connect to a server. The server facilitates peer-to-peer connections between clients.
+
+<Steps>
+  <Step title="Open the Web UI">
+    Launch the FriendNet client and access the web UI at `https://localhost:20042`.
+    
+    On first launch, you'll see the welcome page:
+    
+    ```tsx
+    <h1>Welcome to {AppName}</h1>
+    <p>
+        Not connected to any servers yet?{' '}
+        <A href="/createserver">Add</A> one!
+    </p>
+    ```
+  </Step>
+  
+  <Step title="Add a Server">
+    Click the "Add" link or navigate to `/createserver` to add a new server connection.
+  </Step>
+  
+  <Step title="Enter Server Details">
+    Fill in the required information:
+    
+    <ParamField path="Name" type="string" required>
+      A friendly name for this server connection (e.g., "Friends Network")
+    </ParamField>
+    
+    <ParamField path="Address" type="string" required>
+      The server address (e.g., `example.com` or `example.com:20038`)
+      
+      <Info>
+        If you don't specify a port, the default port `20038` will be used.
+      </Info>
+    </ParamField>
+    
+    <ParamField path="Room" type="string" required>
+      The room name on the server (like a channel or group)
+    </ParamField>
+    
+    <ParamField path="Username" type="string" required>
+      Your username on this server
+    </ParamField>
+    
+    <ParamField path="Password" type="string" required>
+      Your password for authentication
+    </ParamField>
+  </Step>
+  
+  <Step title="Save and Connect">
+    Click "Add Server" to save the connection. The client will automatically connect to the server.
+  </Step>
+</Steps>
+
+### Connection Code Example
+
+Here's how the client processes server creation:
+
+```tsx
+await state.createServer({
+    name: name(),
+    address: addr,
+    room: room(),
+    username: username(),
+    password: password(),
+})
+```
+
+The default server port is defined in the constants:
+
+```tsx
+/**
+ * The default port for servers.
+ */
+export const DefaultServerPort = 20038
+```
+
+## Understanding the Web UI
+
+The FriendNet web UI is built with SolidJS and provides a modern, responsive interface for managing your connections and browsing files.
+
+### Main Navigation Routes
+
+```tsx
+const routes: RouteDefinition[] = [
+    { path: '/', component: WelcomePage },
+    { path: '/settings', component: SettingsPage },
+    { path: '/logs', component: LogsPage },
+    { path: '/createserver', component: CreateServerPage },
+    { path: '/server/:uuid/edit', component: EditServerPage },
+    { path: '/server/:uuid/shares', component: ServerSharesPage },
+    { path: '/server/:uuid/search', component: ServerSearchPage },
+    { path: '/server/:uuid/profile/:username', component: ServerProfilePage },
+    { path: makeBrowsePath(':uuid', ':username', '*path'), component: ServerBrowsePage },
+]
+```
+
+### Key Pages
+
+<CardGroup cols={2}>
+  <Card title="Welcome Page" icon="house">
+    The home page showing your server connections
+  </Card>
+  <Card title="Settings" icon="gear">
+    Configure P2P settings, direct connections, and UPnP
+  </Card>
+  <Card title="Server Shares" icon="folder">
+    Manage your shared folders for each server
+  </Card>
+  <Card title="Search" icon="magnifying-glass">
+    Search for files across all users on a server
+  </Card>
+  <Card title="Browse" icon="folder-tree">
+    Navigate through shared folders of other users
+  </Card>
+  <Card title="Logs" icon="file-lines">
+    View client logs and debug information
+  </Card>
+</CardGroup>
+
+## Account Setup
+
+### Per-Server Accounts
+
+FriendNet uses per-server accounts. Each server connection has its own:
+
+- Username
+- Password
+- Room assignment
+- Share configuration
+
+This allows you to maintain different identities and share different content on different servers.
+
+### Editing Server Connections
+
+You can edit your server connection details at any time:
+
+1. Navigate to the server's edit page: `/server/:uuid/edit`
+2. Update the name, address, room, or username
+3. Save changes
+
+<Warning>
+  Changing the username will affect how other users see you and may require updating shares.
+</Warning>
+
+### Changing Your Password
+
+To change your password on a server:
+
+1. Navigate to `/server/:uuid/changepassword`
+2. Enter your current password
+3. Enter and confirm your new password
+4. Submit the change
+
+The password is used to authenticate with the server and is not shared with other users.
+
+## Basic Navigation
+
+### Browsing User Shares
+
+To browse another user's shared files:
+
+1. Navigate to the server's browse page
+2. Select a user from the user list
+3. Browse their folder structure
+
+The browse URL follows this pattern:
+
+```typescript
+function makeBrowsePath(
+    serverUuid: string,
+    username: string,
+    path: string,
+): string {
+    if (path === '' || path === '/') {
+        return `/server/${serverUuid}/browse/${username}`
+    }
+    
+    const { path: normPath } = normalizePath(path)
+    return `/server/${serverUuid}/browse/${username}${escapePathSegments(normPath)}`
+}
+```
+
+### File Operations
+
+When browsing files, you have several options:
+
+- **📁 Open Directory** - Navigate into a folder
+- **🔗 Open File** - Open the file in a new tab
+- **💾 Download File** - Download the file to your computer
+- **💾 Download Folder** - Download an entire folder as a ZIP file
+
+### Search Interface
+
+The search page allows you to find files across all users:
+
+1. Navigate to `/server/:uuid/search`
+2. Optionally specify a username to search only their files
+3. Enter your search query
+4. Results appear in real-time as they're found
+
+Search supports:
+- Filename matching
+- Directory path matching
+- Extension filters (e.g., `ext:mp3`)
+- Full-text fuzzy search
+
+## Connection Status
+
+The client maintains persistent connections to servers. You can monitor the connection status:
+
+- **Connected** - Actively connected and can browse/download files
+- **Connecting** - Attempting to establish connection
+- **Disconnected** - Not connected (check logs for errors)
+
+## Performance Tips
+
+<Tip>
+  **Enable Direct Connections**: For faster file transfers, configure P2P direct connections in Settings. This allows peers to connect directly instead of routing through the server.
+</Tip>
+
+<Tip>
+  **Cache Settings**: Files can be cached by your browser. Use the `?allowCache=1` parameter for frequently accessed files.
+</Tip>
+
+## Troubleshooting
+
+### Cannot Connect to Server
+
+- Verify the server address and port are correct
+- Check that the server is running and accessible
+- Review the logs at `/logs` for error messages
+
+### Certificate Warnings
+
+If you see certificate warnings:
+
+- Run `./friendnet-client -installca` to install the CA certificate
+- Restart your browser after installation
+
+### Web UI Not Loading
+
+If the web UI doesn't load:
+
+- Ensure the client is running (check for the process)
+- Verify the UI address hasn't been changed with flags
+- Check that port 20042 is not in use by another application
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Share Your Files" icon="share" href="/client/sharing-files">
+    Learn how to share folders with other users
+  </Card>
+  <Card title="Search for Files" icon="magnifying-glass" href="/client/searching">
+    Master the search functionality to find content
+  </Card>
+  <Card title="Download Files" icon="download" href="/client/downloading">
+    Understand download options and connection methods
+  </Card>
+</CardGroup>

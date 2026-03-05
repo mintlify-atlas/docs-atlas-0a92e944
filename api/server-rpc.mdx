@@ -1,0 +1,383 @@
+---
+title: "Server RPC API"
+description: "Administer a running FriendNet server via RPC"
+---
+
+## Overview
+
+The ServerRpcService provides an RPC interface to a running FriendNet server. You can query state and perform administrative tasks such as managing rooms, accounts, and online users.
+
+## Connection
+
+Connect to the Server RPC service using ConnectRPC:
+
+```typescript
+import { createPromiseClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-node";
+import { ServerRpcService } from "./gen/serverrpc/v1/rpc_connect";
+
+const transport = createConnectTransport({
+  baseUrl: "http://localhost:8081",
+  httpVersion: "2",
+});
+
+const client = createPromiseClient(ServerRpcService, transport);
+```
+
+## Authentication
+
+If authorization is required, include a bearer token in your requests:
+
+```typescript
+const transport = createConnectTransport({
+  baseUrl: "http://localhost:8081",
+  httpVersion: "2",
+  interceptors: [
+    (next) => async (req) => {
+      req.header.set("Authorization", "Bearer YOUR_ADMIN_TOKEN");
+      return await next(req);
+    },
+  ],
+});
+```
+
+### Error Codes
+- `UNAUTHENTICATED` - Authorization required but not provided
+- `PERMISSION_DENIED` - Invalid authorization credentials
+
+## RPC Methods
+
+### GetRooms
+
+Returns a list of all rooms in the server.
+
+```typescript
+const response = await client.getRooms({});
+console.log(response.rooms);
+```
+
+<ResponseField name="rooms" type="RoomInfo[]">
+  All the rooms in the server
+  
+  <Expandable title="RoomInfo">
+    <ResponseField name="name" type="string">
+      The room's name
+    </ResponseField>
+    <ResponseField name="online_user_count" type="uint32">
+      The number of online users in the room
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### GetRoomInfo
+
+Returns information about a specific room.
+
+```typescript
+const response = await client.getRoomInfo({
+  name: "default",
+});
+console.log(`Online users: ${response.room.onlineUserCount}`);
+```
+
+<ParamField path="name" type="string" required>
+  The room's name
+</ParamField>
+
+<ResponseField name="room" type="RoomInfo">
+  Information about the room
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such room exists
+
+---
+
+### GetOnlineUsers
+
+Returns a list of online users in a room. The response is paginated and may return zero or more responses.
+
+```typescript
+const stream = client.getOnlineUsers({
+  room: "default",
+});
+
+for await (const response of stream) {
+  console.log(response.users);
+}
+```
+
+<ParamField path="room" type="string" required>
+  The room to query
+</ParamField>
+
+<ResponseField name="users" type="OnlineUserInfo[]">
+  Online users in the room
+  
+  <Expandable title="OnlineUserInfo">
+    <ResponseField name="username" type="string">
+      The user's username
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### GetOnlineUserInfo
+
+Returns information about an online user.
+
+```typescript
+const response = await client.getOnlineUserInfo({
+  room: "default",
+  username: "alice",
+});
+console.log(response.user);
+```
+
+<ParamField path="room" type="string" required>
+  The room's name
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The user's username
+</ParamField>
+
+<ResponseField name="user" type="OnlineUserInfo">
+  Information about the online user
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - The user is not online or does not exist
+
+---
+
+### GetAccounts
+
+Returns all accounts in a room.
+
+```typescript
+const response = await client.getAccounts({
+  room: "default",
+});
+console.log(response.accounts);
+```
+
+<ParamField path="room" type="string" required>
+  The room to query
+</ParamField>
+
+<ResponseField name="accounts" type="AccountInfo[]">
+  All accounts in the room
+  
+  <Expandable title="AccountInfo">
+    <ResponseField name="username" type="string">
+      The account's username
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such room exists
+
+---
+
+### CreateRoom
+
+Creates a new room.
+
+```typescript
+const response = await client.createRoom({
+  name: "project-team",
+});
+console.log(`Created room: ${response.room.name}`);
+```
+
+<ParamField path="name" type="string" required>
+  The new room's name
+</ParamField>
+
+<ResponseField name="room" type="RoomInfo">
+  Information about the newly created room
+</ResponseField>
+
+**Error Codes:**
+- `ALREADY_EXISTS` - A room with the same name already exists
+
+---
+
+### DeleteRoom
+
+Deletes an existing room. Any connected users are disconnected before deletion.
+
+```typescript
+await client.deleteRoom({
+  name: "project-team",
+});
+```
+
+<ParamField path="name" type="string" required>
+  The room's name
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such room exists
+
+---
+
+### CreateAccount
+
+Creates a new account in a room. Can generate a password if none is provided.
+
+```typescript
+const response = await client.createAccount({
+  room: "default",
+  username: "newuser",
+  password: "securepass123", // or empty string to generate
+});
+
+if (response.generatedPassword) {
+  console.log(`Generated password: ${response.generatedPassword}`);
+}
+```
+
+<ParamField path="room" type="string" required>
+  The room's name
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The new account's username
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  The new account's password, or empty to generate one
+</ParamField>
+
+<ResponseField name="generated_password" type="string" optional>
+  The generated password, if applicable
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such room exists
+- `ALREADY_EXISTS` - An account with the same username already exists in the room
+
+---
+
+### DeleteAccount
+
+Deletes an existing account in a room.
+
+```typescript
+await client.deleteAccount({
+  room: "default",
+  username: "olduser",
+});
+```
+
+<ParamField path="room" type="string" required>
+  The room's name
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The account's username
+</ParamField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such room or account exists
+
+---
+
+### UpdateAccountPassword
+
+Updates a user's password. Can either update to a provided string or generate a new password.
+
+```typescript
+const response = await client.updateAccountPassword({
+  room: "default",
+  username: "alice",
+  password: "newpassword456", // or empty string to generate
+});
+
+if (response.generatedPassword) {
+  console.log(`Generated password: ${response.generatedPassword}`);
+}
+```
+
+<ParamField path="room" type="string" required>
+  The room's name
+</ParamField>
+
+<ParamField path="username" type="string" required>
+  The account's username
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  The account's new password, or empty to generate one
+</ParamField>
+
+<ResponseField name="generated_password" type="string" optional>
+  The generated password, if applicable
+</ResponseField>
+
+**Error Codes:**
+- `NOT_FOUND` - No such room or account exists
+
+---
+
+## Common Use Cases
+
+### Setting Up a New Room
+
+```typescript
+// Create a new room
+const room = await client.createRoom({ name: "engineering" });
+
+// Create accounts for users
+const user1 = await client.createAccount({
+  room: "engineering",
+  username: "alice",
+  password: "", // Generate password
+});
+
+const user2 = await client.createAccount({
+  room: "engineering",
+  username: "bob",
+  password: "custom-password-123",
+});
+
+console.log(`Alice's password: ${user1.generatedPassword}`);
+```
+
+### Monitoring Online Users
+
+```typescript
+// Get all rooms
+const rooms = await client.getRooms({});
+
+// Check online users in each room
+for (const room of rooms.rooms) {
+  console.log(`\nRoom: ${room.name} (${room.onlineUserCount} online)`);
+  
+  const stream = client.getOnlineUsers({ room: room.name });
+  for await (const response of stream) {
+    response.users.forEach(user => {
+      console.log(`  - ${user.username}`);
+    });
+  }
+}
+```
+
+### Resetting User Password
+
+```typescript
+// Generate a new password for a user
+const response = await client.updateAccountPassword({
+  room: "default",
+  username: "alice",
+  password: "", // Empty string to generate
+});
+
+console.log(`New password for alice: ${response.generatedPassword}`);
+```

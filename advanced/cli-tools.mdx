@@ -1,0 +1,449 @@
+---
+title: CLI Tools
+description: Command-line tools for managing FriendNet servers
+---
+
+FriendNet includes a powerful command-line RPC client for server administration. The `friendnet-rpcclient` tool provides a convenient interface for managing rooms, accounts, and monitoring server activity.
+
+## Overview
+
+The RPC client is a command-line tool that communicates with the FriendNet server via RPC (Remote Procedure Call). It supports both Unix socket and HTTP connections, making it suitable for local and remote server management.
+
+### Key Features
+
+- Interactive shell with command completion
+- Room and account management
+- User monitoring and statistics
+- Unix socket and HTTP transport support
+- Scriptable single-command execution
+
+## Installation
+
+### From Source
+
+Build the rpcclient from source:
+
+```bash
+cd rpcclient
+go build -o friendnet-rpcclient friendnet.org/rpcclient/cmd/cli
+```
+
+Or use the Makefile:
+
+```bash
+make rpcclient
+```
+
+The binary will be created at `rpcclient/friendnet-rpcclient`.
+
+### Running
+
+You can run the rpcclient in two modes:
+
+1. **Interactive mode** - Opens an interactive shell
+2. **Single-command mode** - Executes a single command and exits
+
+## Connection Methods
+
+The rpcclient supports two connection methods via the `-addr` flag.
+
+### Unix Socket (Default)
+
+Connect to a local server via Unix socket:
+
+```bash
+./friendnet-rpcclient -addr unix://friendnet-server.sock
+```
+
+<Note>
+Unix sockets provide better performance and security for local server management. This is the recommended method when running the rpcclient on the same machine as the server.
+</Note>
+
+The server configuration (server/cmd/server/main.go:102-122) typically creates a Unix socket RPC interface at `friendnet-server.sock`.
+
+### HTTP
+
+Connect to a remote server via HTTP:
+
+```bash
+./friendnet-rpcclient -addr http://127.0.0.1:8080
+```
+
+For HTTPS connections:
+
+```bash
+./friendnet-rpcclient -addr https://example.com:8443
+```
+
+<Warning>
+When using HTTP/HTTPS, ensure your server's RPC interface is configured with appropriate authentication and network restrictions. The default HTTP interface (port 8080) has limited method access for security.
+</Warning>
+
+## Usage Modes
+
+### Interactive Mode
+
+Launch the interactive shell by running rpcclient without the `-cmd` flag:
+
+```bash
+./friendnet-rpcclient -addr unix://friendnet-server.sock
+```
+
+You'll see:
+```
+Welcome to the FriendNet server RPC CLI.
+Type "help" for a list of commands.
+> 
+```
+
+The interactive mode features:
+- Command autocomplete (Tab key)
+- Command history (Up/Down arrows)
+- Built-in help system
+
+### Single-Command Mode
+
+Execute a single command and exit:
+
+```bash
+./friendnet-rpcclient -addr unix://friendnet-server.sock -cmd "getrooms"
+```
+
+This is useful for:
+- Shell scripts
+- Automation tasks
+- Quick queries
+
+## Available Commands
+
+The rpcclient implements the following commands (from rpcclient/cli.go:28-106):
+
+### Room Management
+
+<AccordionGroup>
+  <Accordion title="getrooms" icon="list">
+    List all rooms on the server.
+    
+    **Usage:**
+    ```bash
+    getrooms
+    ```
+    
+    **Example output:**
+    ```
+    public (online users: 5)
+    friends (online users: 2)
+    private (online users: 0)
+    ```
+  </Accordion>
+
+  <Accordion title="getroominfo" icon="circle-info">
+    Get detailed information about a specific room.
+    
+    **Usage:**
+    ```bash
+    getroominfo <room>
+    ```
+    
+    **Example:**
+    ```bash
+    > getroominfo public
+    public (online users: 5)
+    ```
+  </Accordion>
+
+  <Accordion title="createroom" icon="plus">
+    Create a new room.
+    
+    **Usage:**
+    ```bash
+    createroom <room>
+    ```
+    
+    **Example:**
+    ```bash
+    > createroom newroom
+    Created room newroom (online users: 0)
+    ```
+  </Accordion>
+
+  <Accordion title="deleteroom" icon="trash">
+    Delete an existing room.
+    
+    **Usage:**
+    ```bash
+    deleteroom <room>
+    ```
+    
+    **Example:**
+    ```bash
+    > deleteroom oldroom
+    Deleted room "oldroom".
+    ```
+    
+    <Warning>This permanently deletes the room and all associated data.</Warning>
+  </Accordion>
+</AccordionGroup>
+
+### User Management
+
+<AccordionGroup>
+  <Accordion title="getonlineusers" icon="users">
+    List all users currently online in a room.
+    
+    **Usage:**
+    ```bash
+    getonlineusers <room>
+    ```
+    
+    **Example:**
+    ```bash
+    > getonlineusers public
+    alice
+    bob
+    charlie
+    ```
+  </Accordion>
+
+  <Accordion title="getonlineuserinfo" icon="user">
+    Get information about a specific online user.
+    
+    **Usage:**
+    ```bash
+    getonlineuserinfo <room> <username>
+    ```
+    
+    **Example:**
+    ```bash
+    > getonlineuserinfo public alice
+    alice
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Account Management
+
+<AccordionGroup>
+  <Accordion title="getaccounts" icon="address-book">
+    List all registered accounts in a room.
+    
+    **Usage:**
+    ```bash
+    getaccounts <room>
+    ```
+    
+    **Example:**
+    ```bash
+    > getaccounts public
+    alice
+    bob
+    charlie
+    david
+    ```
+  </Accordion>
+
+  <Accordion title="createaccount" icon="user-plus">
+    Create a new user account in a room.
+    
+    **Usage:**
+    ```bash
+    createaccount <room> <username> [password]
+    ```
+    
+    If password is omitted, a random password is generated.
+    
+    **Example:**
+    ```bash
+    > createaccount public newuser
+    Generated password: xK9mP2nQ7wL5
+    
+    > createaccount public alice mypassword123
+    Account "alice" created in room "public".
+    ```
+  </Accordion>
+
+  <Accordion title="deleteaccount" icon="user-minus">
+    Delete a user account from a room.
+    
+    **Usage:**
+    ```bash
+    deleteaccount <room> <username>
+    ```
+    
+    **Example:**
+    ```bash
+    > deleteaccount public olduser
+    Deleted account "olduser" in room "public".
+    ```
+  </Accordion>
+
+  <Accordion title="updateaccountpassword" icon="key">
+    Update a user's password.
+    
+    **Usage:**
+    ```bash
+    updateaccountpassword <room> <username> [password]
+    ```
+    
+    If password is omitted, a random password is generated.
+    
+    **Example:**
+    ```bash
+    > updateaccountpassword public alice
+    Generated password: pL3qR8sT2vN6
+    
+    > updateaccountpassword public alice newpassword456
+    Updated password for "alice" in room "public".
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Help
+
+<Accordion title="help" icon="circle-question">
+  Display help information.
+  
+  **Usage:**
+  ```bash
+  help [command]
+  ```
+  
+  **Examples:**
+  ```bash
+  # List all commands
+  > help
+  Commands:
+    help                  help [command]
+    getrooms              getrooms
+    getroominfo           getroominfo <room>
+    getonlineusers        getonlineusers <room>
+    getonlineuserinfo     getonlineuserinfo <room> <username>
+    getaccounts           getaccounts <room>
+    createroom            createroom <room>
+    deleteroom            deleteroom <room>
+    createaccount         createaccount <room> <username> [password]
+    deleteaccount         deleteaccount <room> <username>
+    updateaccountpassword updateaccountpassword <room> <username> [password]
+  
+  # Get help for a specific command
+  > help createaccount
+  createaccount - createaccount <room> <username> [password]
+  ```
+</Accordion>
+
+## Common Operations
+
+### Setting Up a New Room
+
+```bash
+# Create a room
+> createroom myroom
+Created room myroom (online users: 0)
+
+# Create accounts for users
+> createaccount myroom alice
+Generated password: aB3cD4eF5gH6
+
+> createaccount myroom bob
+Generated password: iJ7kL8mN9oP0
+
+# Verify accounts were created
+> getaccounts myroom
+alice
+bob
+```
+
+### Monitoring Server Activity
+
+```bash
+# Check all rooms and their activity
+> getrooms
+public (online users: 12)
+friends (online users: 3)
+private (online users: 0)
+
+# See who's online in a specific room
+> getonlineusers public
+alice
+bob
+charlie
+david
+...
+```
+
+### Password Reset
+
+```bash
+# Reset a user's password
+> updateaccountpassword public alice
+Generated password: qR2sT3uV4wX5
+
+# Or set a specific password
+> updateaccountpassword public alice newpassword123
+Updated password for "alice" in room "public".
+```
+
+## Scripting Examples
+
+### Bash Script for User Creation
+
+```bash
+#!/bin/bash
+# create-users.sh - Bulk create users in a room
+
+ROOM="public"
+USERS=("alice" "bob" "charlie" "david")
+
+for user in "${USERS[@]}"; do
+  ./friendnet-rpcclient -addr unix://friendnet-server.sock \
+    -cmd "createaccount $ROOM $user"
+done
+```
+
+### Monitoring Script
+
+```bash
+#!/bin/bash
+# monitor.sh - Display room statistics
+
+while true; do
+  clear
+  echo "=== FriendNet Server Status ==="
+  echo
+  ./friendnet-rpcclient -addr unix://friendnet-server.sock -cmd "getrooms"
+  echo
+  sleep 5
+done
+```
+
+## RPC Client Implementation
+
+The rpcclient is implemented using Connect RPC (rpcclient/cmd/cli/main.go:18-97). It creates an HTTP client configured for either Unix socket or HTTP transport:
+
+```go
+// Unix socket transport
+transport := &http.Transport{
+    DialContext: func(ctx context.Context, network string, _ string) (net.Conn, error) {
+        return dailer.DialContext(ctx, "unix", addr)
+    },
+}
+```
+
+The client supports a 5-second timeout for operations and uses gRPC-Web protocol for communication.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Server Configuration" icon="gear" href="/server/configuration">
+    Configure RPC interfaces and security
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/advanced/troubleshooting">
+    Common issues with RPC connections
+  </Card>
+  <Card title="Building from Source" icon="hammer" href="/advanced/building-from-source">
+    Build the rpcclient from source
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/server-rpc">
+    Complete RPC API documentation
+  </Card>
+</CardGroup>

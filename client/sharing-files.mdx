@@ -1,0 +1,285 @@
+---
+title: Sharing Files
+description: Share folders and manage file visibility in FriendNet
+---
+
+## How to Share Folders
+
+Sharing folders makes your local files accessible to other users on the server. Each server connection can have multiple shares.
+
+<Steps>
+  <Step title="Navigate to Shares Page">
+    Go to the shares page for your server: `/server/:uuid/shares`
+  </Step>
+  
+  <Step title="View Existing Shares">
+    You'll see a list of your current shares with their details:
+    
+    ```tsx
+    <div class={styles.share}>
+        Name: {share.name}
+        <br />
+        Path: {share.path}
+        <br />
+        Follow Symbolic Links? {share.followLinks ? 'Yes' : 'No'}
+    </div>
+    ```
+  </Step>
+  
+  <Step title="Add a New Share">
+    Fill in the share form with the following information:
+    
+    <ParamField path="Name" type="string" required>
+      A friendly name for this share (e.g., "Music Library")
+    </ParamField>
+    
+    <ParamField path="Local Path" type="string" required>
+      The absolute path to the folder on your computer
+      
+      **Examples:**
+      - Linux/macOS: `/mnt/Music`, `/home/user/Documents`
+      - Windows: `D:\Music`, `C:\Users\username\Documents`
+    </ParamField>
+    
+    <ParamField path="Follow symbolic links" type="boolean" default="true">
+      Whether to follow symbolic links when indexing and serving files
+      
+      <Warning>
+        Be careful when enabling this option as it could expose files outside the intended share directory.
+      </Warning>
+    </ParamField>
+  </Step>
+  
+  <Step title="Submit the Share">
+    Click "Add Share" to create the share. The client will begin indexing the folder.
+  </Step>
+</Steps>
+
+### Share Creation Code
+
+Here's how shares are created in the client:
+
+```tsx
+await server.createShare({
+    name: name(),
+    path: path(),
+    followLinks: followLinks(),
+})
+```
+
+## Managing Shares
+
+### Viewing Your Shares
+
+The shares page displays all your active shares for a specific server connection:
+
+```tsx
+<Show when={server.shares().length > 0} fallback={<p>No shares</p>}>
+    <For each={server.shares()}>
+        {(share) => (
+            <div class={styles.share}>
+                Name: {share.name}
+                <br />
+                Path: {share.path}
+                <br />
+                Follow Symbolic Links? {share.followLinks ? 'Yes' : 'No'}
+                <br />
+                <button onClick={() => doDelete(share.name)}>Delete</button>{' '}
+                <button onClick={() => doIndex(share.name)}>Index Now</button>
+            </div>
+        )}
+    </For>
+</Show>
+```
+
+### Deleting Shares
+
+To remove a share:
+
+1. Click the "Delete" button next to the share
+2. Confirm the deletion
+3. The share will be removed immediately
+
+```tsx
+const doDelete = async (name: string) => {
+    if (!confirm('Are you sure?')) {
+        return
+    }
+    
+    await server.deleteShare(name)
+}
+```
+
+<Warning>
+  Deleting a share removes it from the server but does not delete any files from your local filesystem.
+</Warning>
+
+### Manual Indexing
+
+Shares are automatically indexed periodically, but you can trigger manual indexing:
+
+1. Click the "Index Now" button next to a share
+2. The client will scan the folder in the background
+3. You'll see a confirmation message
+
+```tsx
+const doIndex = async (name: string) => {
+    await server.scheduleShareIndex(name)
+    alert('The share is being indexed in the background')
+}
+```
+
+<Info>
+  Indexing runs in the background and doesn't block other operations. Large folders may take some time to index completely.
+</Info>
+
+## File Indexing
+
+### What Gets Indexed
+
+When you share a folder, the client indexes:
+
+- File names
+- File sizes
+- Directory structure
+- File metadata (modification times, etc.)
+
+### Index Storage
+
+The index is stored locally in the client's SQLite database (`client.db`) and synchronized with the server. This allows for fast searching without scanning the filesystem each time.
+
+### Automatic Re-indexing
+
+The client automatically re-indexes shares:
+
+- On client startup
+- Periodically in the background
+- When you manually trigger indexing
+
+### Performance Considerations
+
+<Tip>
+  **Large Shares**: For folders with hundreds of thousands of files, the initial indexing may take several minutes. Subsequent updates are incremental and faster.
+</Tip>
+
+<Warning>
+  **Symbolic Links**: If you enable "Follow symbolic links", be aware that this could significantly increase indexing time if links point to large directory trees.
+</Warning>
+
+## Privacy and Visibility
+
+### Who Can See Your Shares
+
+Your shares are visible to:
+
+- **All users in the same room** on the server you're connected to
+- **Only users you're actively connected with** if you've enabled direct connections
+
+### What Users Can Do
+
+<Card title="Other users can:" icon="check">
+  - Browse your shared folder structure
+  - Search for files in your shares
+  - Download individual files
+  - Download entire folders as ZIP archives
+</Card>
+
+<Card title="Other users cannot:" icon="xmark">
+  - Upload files to your shares
+  - Modify or delete your files
+  - See files outside your shared folders
+  - Execute code on your machine
+</Card>
+
+### File Access Control
+
+FriendNet uses path validation to prevent directory traversal attacks:
+
+```go
+path, err := common.ValidatePath(pathRaw)
+if err != nil {
+    text(w, r, http.StatusBadRequest, fmt.Sprintf("invalid path %q: %v\n", pathRaw, err))
+    return
+}
+```
+
+All file access is:
+
+- **Read-only** - Users can only download files, never upload or modify
+- **Sandboxed** - Users cannot access files outside shared directories
+- **Authenticated** - Only authenticated users in the same room can access shares
+
+### Privacy Best Practices
+
+<Warning>
+  **Review Before Sharing**: Always review the contents of a folder before sharing it. Once shared, all files in that folder (and subfolders) become accessible to room members.
+</Warning>
+
+<Tip>
+  **Organize Your Shares**: Create dedicated folders for sharing rather than sharing your entire home directory or Documents folder.
+</Tip>
+
+<Tip>
+  **Be Careful with Symbolic Links**: Disabling "Follow symbolic links" prevents accidentally exposing linked directories outside your intended share.
+</Tip>
+
+## Share Limits
+
+There are no hard limits on:
+
+- Number of shares per server
+- Size of shared folders
+- Number of files in a share
+
+However, very large shares (millions of files) may:
+
+- Take longer to index
+- Use more database space
+- Slow down search operations
+
+## Bandwidth and Resource Usage
+
+When other users download from your shares:
+
+- **Upload bandwidth** is consumed from your network connection
+- **CPU usage** increases slightly for file serving
+- **No disk writes** occur (read-only access)
+
+<Info>
+  If you're on a metered connection or have bandwidth limits, be mindful of sharing large files or folders.
+</Info>
+
+## Advanced: WebDAV Access
+
+The client includes a WebDAV server that allows you to mount peer shares as network drives. See the [Downloading](/client/downloading) page for more information.
+
+## Troubleshooting
+
+### Share Not Appearing
+
+- Verify the local path exists and is accessible
+- Check file permissions (the client needs read access)
+- Review logs for indexing errors
+
+### Files Not Updating
+
+- Trigger manual indexing with the "Index Now" button
+- Restart the client to force a full re-index
+- Check that the folder is not on a network drive with caching issues
+
+### Symbolic Link Issues
+
+- If symbolic links aren't being followed, enable "Follow symbolic links"
+- If you get permission errors, check that the link targets are readable
+- Circular symbolic links are detected and skipped
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Search Files" icon="magnifying-glass" href="/client/searching">
+    Learn how to search across shared files
+  </Card>
+  <Card title="Download Files" icon="download" href="/client/downloading">
+    Understand download options and methods
+  </Card>
+</CardGroup>

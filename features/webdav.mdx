@@ -1,0 +1,405 @@
+---
+title: WebDAV Support
+description: Mount FriendNet shares as network drives using the WebDAV protocol
+---
+
+FriendNet includes a built-in WebDAV server that allows you to mount shared files as network drives on your operating system. This provides native file system integration without requiring a custom client.
+
+## What is WebDAV?
+
+WebDAV (Web Distributed Authoring and Versioning) is an extension of HTTP that allows clients to perform remote web content authoring operations. FriendNet uses WebDAV to expose shared files as a standard network file system.
+
+### Why Use WebDAV?
+
+- **Native integration**: Mount shares directly in your file explorer (Windows Explorer, macOS Finder, Linux file managers)
+- **No special client**: Works with built-in OS functionality
+- **Standard protocol**: Compatible with any WebDAV client
+- **Application support**: Open files directly in applications as if they were local
+
+## WebDAV Server Implementation
+
+FriendNet's WebDAV server wraps the MultiFs file system to provide read-only access to all connected room shares:
+
+```go client/fsys/multifs/webdav.go
+// WebDavWrapper wraps MultiFs to implement webdav.FileSystem
+// It is read-only, and all write operations return os.ErrPermission
+type WebDavWrapper struct {
+    mfs *MultiFs
+}
+
+func NewWebDavWrapper(mfs *MultiFs) WebDavWrapper {
+    return WebDavWrapper{
+        mfs: mfs,
+    }
+}
+
+func (w WebDavWrapper) OpenFile(_ context.Context, name string, _ int, _ os.FileMode) (webdav.File, error) {
+    f, err := w.mfs.Open(name)
+    if err != nil {
+        return nil, err
+    }
+    return f.(webdav.File), nil
+}
+
+func (w WebDavWrapper) Stat(_ context.Context, name string) (os.FileInfo, error) {
+    return w.mfs.Stat(name)
+}
+```
+
+<Warning>
+FriendNet's WebDAV implementation is **read-only**. All write operations (create, delete, rename) return `os.ErrPermission`.
+</Warning>
+
+### Read-Only Operations
+
+```go client/fsys/multifs/webdav.go
+func (w WebDavWrapper) Mkdir(_ context.Context, _ string, _ os.FileMode) error {
+    return os.ErrPermission
+}
+
+func (w WebDavWrapper) RemoveAll(_ context.Context, _ string) error {
+    return os.ErrPermission
+}
+
+func (w WebDavWrapper) Rename(_ context.Context, _ string, _ string) error {
+    return os.ErrPermission
+}
+```
+
+## Server Configuration
+
+The WebDAV server is configured in the main client application:
+
+```go client/cmd/client/main.go
+// Parse command line arguments
+var davAddr string
+flag.StringVar(&davAddr, "davaddr", "https://localhost:20043", "WebDAV server address")
+
+// Create MultiFs with metadata caching
+metaCache := fsys.NewMetaCache(30*time.Second, 5*time.Minute)
+multiFs := multifs.NewMultiFs(multi,
+    multifs.WithMetaCache(metaCache),
+)
+
+// Create WebDAV handler
+webdavHandler := &webdav.Handler{
+    FileSystem: multifs.NewWebDavWrapper(multiFs),
+    LockSystem: webdav.NewMemLS(),
+}
+
+// Configure HTTPS server
+davServer := http.Server{
+    Addr:      davUrl.Host,
+    Handler:   webdavHandler,
+    TLSConfig: httpsTlsCfg,
+    Protocols: httpProto,
+}
+```
+
+### Default Configuration
+
+- **Address**: `https://localhost:20043`
+- **Protocol**: HTTPS only (TLS required)
+- **Authentication**: Currently unauthenticated (TODO: bearer token support)
+- **Locking**: In-memory lock system for WebDAV compliance
+
+<Note>
+The WebDAV server uses the same HTTPS certificate as the web UI server, which is generated using mkcert and stored in the client database.
+</Note>
+
+## Platform-Specific Mounting Instructions
+
+### Windows
+
+<Steps>
+  <Step title="Open File Explorer">
+    Press `Win + E` to open File Explorer.
+  </Step>
+  
+  <Step title="Map Network Drive">
+    Right-click on "This PC" and select "Map network drive...".
+  </Step>
+  
+  <Step title="Enter WebDAV Address">
+    - Choose a drive letter (e.g., `Z:`)
+    - Enter: `https://localhost:20043`
+    - Check "Reconnect at sign-in" if desired
+    - Click "Finish"
+  </Step>
+  
+  <Step title="Certificate Trust">
+    If you see a certificate warning, you need to install the FriendNet CA certificate first:
+    ```bash
+    friendnet-client -installca
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Windows has known issues with WebDAV over localhost. If you encounter problems, try using `https://127.0.0.1:20043` instead of `https://localhost:20043`.
+</Warning>
+
+### macOS
+
+<Steps>
+  <Step title="Open Finder">
+    Press `Cmd + Space` and type "Finder".
+  </Step>
+  
+  <Step title="Connect to Server">
+    Press `Cmd + K` or select "Go" → "Connect to Server..." from the menu.
+  </Step>
+  
+  <Step title="Enter WebDAV URL">
+    Enter: `https://localhost:20043` and click "Connect".
+  </Step>
+  
+  <Step title="Trust Certificate">
+    If prompted about the certificate, click "Continue" (you may need to install the CA certificate first):
+    ```bash
+    ./friendnet-client -installca
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Add the WebDAV server to your Finder favorites for quick access by dragging it to the sidebar.
+</Tip>
+
+### Linux
+
+#### Using GNOME Files (Nautilus)
+
+<Steps>
+  <Step title="Open Files">
+    Launch the GNOME Files application (Nautilus).
+  </Step>
+  
+  <Step title="Connect to Server">
+    Press `Ctrl + L` to show the location bar, or select "Other Locations" → "Connect to Server".
+  </Step>
+  
+  <Step title="Enter WebDAV URL">
+    Enter: `davs://localhost:20043` (note: `davs` is WebDAV over SSL)
+  </Step>
+  
+  <Step title="Trust Certificate">
+    Click "Accept" when prompted about the certificate.
+  </Step>
+</Steps>
+
+#### Using KDE Dolphin
+
+<Steps>
+  <Step title="Open Dolphin">
+    Launch the Dolphin file manager.
+  </Step>
+  
+  <Step title="Add Network Folder">
+    Select "Network" → "Add Network Folder" from the left sidebar.
+  </Step>
+  
+  <Step title="Select WebDAV">
+    Choose "WebDAV" and click "Next".
+  </Step>
+  
+  <Step title="Configure Connection">
+    - Name: FriendNet
+    - Server: localhost
+    - Port: 20043
+    - Protocol: HTTPS
+    - Click "Save & Connect"
+  </Step>
+</Steps>
+
+#### Command Line with davfs2
+
+```bash
+# Install davfs2
+sudo apt-get install davfs2  # Debian/Ubuntu
+sudo dnf install davfs2      # Fedora
+sudo pacman -S davfs2        # Arch Linux
+
+# Create mount point
+mkdir ~/friendnet
+
+# Mount WebDAV share
+sudo mount -t davfs https://localhost:20043 ~/friendnet
+
+# Unmount when done
+sudo umount ~/friendnet
+```
+
+## File System Structure
+
+When you mount the WebDAV share, you'll see the following structure:
+
+```
+/
+├── room1@server1/
+│   ├── user1/
+│   │   ├── share1/
+│   │   └── share2/
+│   └── user2/
+│       └── share1/
+└── room2@server2/
+    └── user3/
+        └── documents/
+```
+
+Each room connection appears as a top-level directory, with subdirectories for each connected user and their shares.
+
+## Use Cases and Limitations
+
+### Ideal Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Quick File Access" icon="folder-open">
+    Quickly browse and open files from peers without using a web interface.
+  </Card>
+  
+  <Card title="Application Integration" icon="wand-magic-sparkles">
+    Open remote files directly in desktop applications (text editors, image viewers, etc.).
+  </Card>
+  
+  <Card title="Drag and Drop" icon="hand-pointer">
+    Copy files from FriendNet shares to your local system with drag and drop.
+  </Card>
+  
+  <Card title="Quick Preview" icon="eye">
+    Use OS file previews (Quick Look on macOS, Preview Pane on Windows) to view files.
+  </Card>
+</CardGroup>
+
+### Limitations
+
+<Warning>
+**Read-Only Access**
+
+You cannot:
+- Create new files or directories
+- Delete files or directories  
+- Rename files or directories
+- Modify existing files
+
+All write operations will fail with a permission error.
+</Warning>
+
+<Warning>
+**Performance Considerations**
+
+- **No local caching**: Files are fetched from peers on every access
+- **Network latency**: Opening large files may be slow
+- **Metadata caching**: File metadata is cached for 30 seconds to 5 minutes
+- **Not for heavy workloads**: Best for occasional access, not continuous use
+</Warning>
+
+<Warning>
+**Connection Requirements**
+
+- WebDAV only works while the FriendNet client is running
+- You must be connected to rooms to see files
+- Peers must be online to access their files
+- Certificate trust must be established
+</Warning>
+
+## Troubleshooting
+
+### Certificate Errors
+
+If you see SSL/TLS certificate errors:
+
+```bash
+# Install the FriendNet CA certificate
+friendnet-client -installca
+
+# On some systems, you may need to restart your browser or file manager
+```
+
+### Connection Refused
+
+If the WebDAV server isn't accessible:
+
+1. Verify the client is running: Check for the process
+2. Check the configured address: Look at startup logs for the WebDAV address
+3. Verify port availability: Ensure port 20043 isn't blocked or in use
+
+### Slow Performance
+
+If file operations are slow:
+
+1. **Use direct connections**: Ensure peers have direct connectivity (not proxied)
+2. **Check network**: Verify network quality to peers
+3. **Reduce concurrent access**: Opening many files simultaneously will be slow
+4. **Consider alternatives**: For heavy usage, use the web UI or file server directly
+
+### Files Not Appearing
+
+If expected files don't show up:
+
+1. **Verify connection**: Check that you're connected to the room
+2. **Peer online**: Ensure the peer sharing the files is online
+3. **Share enabled**: Verify the peer has enabled and started sharing
+4. **Refresh**: Try unmounting and remounting the WebDAV share
+
+## Security Considerations
+
+### HTTPS Required
+
+The WebDAV server only supports HTTPS connections. This ensures:
+
+- Encrypted data transfer
+- Protection against man-in-the-middle attacks
+- Compatibility with modern security requirements
+
+### Certificate Management
+
+FriendNet uses mkcert to generate a local CA and issue certificates:
+
+```bash
+# Install CA certificate (adds to system trust store)
+friendnet-client -installca
+
+# Uninstall CA certificate (removes from system trust store)
+friendnet-client -uninstallca
+```
+
+### Future Authentication
+
+<Note>
+Currently, the WebDAV server does not require authentication. A future update will add bearer token authentication using the same token as the RPC server.
+</Note>
+
+## Advanced Configuration
+
+### Custom Address
+
+You can specify a custom WebDAV server address:
+
+```bash
+friendnet-client -davaddr "https://localhost:8443"
+```
+
+### Metadata Cache Tuning
+
+The metadata cache can be configured when creating the MultiFs:
+
+```go
+// Cache metadata for 1 minute, expire after 10 minutes of no access
+metaCache := fsys.NewMetaCache(1*time.Minute, 10*time.Minute)
+multiFs := multifs.NewMultiFs(multi,
+    multifs.WithMetaCache(metaCache),
+)
+```
+
+## Related Topics
+
+<CardGroup cols={2}>
+  <Card title="Client Installation" icon="desktop" href="/client/installation">
+    Learn about installing the FriendNet client
+  </Card>
+  
+  <Card title="Shares" icon="folder-open" href="/client/sharing-files">
+    Understand how to create and manage shared folders
+  </Card>
+</CardGroup>

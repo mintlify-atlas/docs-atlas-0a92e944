@@ -1,0 +1,249 @@
+---
+title: Architecture
+description: Technical architecture and design of FriendNet
+---
+
+FriendNet is a peer-to-peer file sharing system with a client-server architecture that facilitates peer discovery, search, and optionally proxies file transfers when direct connections aren't possible.
+
+## Project Structure
+
+The FriendNet codebase is organized as a Go workspace with multiple modules:
+
+<CodeGroup>
+
+```bash Directory Structure
+friendnet/
+├── client/          # Client application
+├── server/          # Server application
+├── common/          # Shared utilities and types
+├── protocol/        # Protocol definitions and logic
+├── webui/           # Web-based user interface
+├── rpcclient/       # CLI RPC client for testing
+├── mkcert/          # Certificate generation (adapted from mkcert)
+├── upnp/            # UPnP port forwarding
+└── go.work          # Go workspace configuration
+```
+
+</CodeGroup>
+
+### Module Overview
+
+| Module | Purpose |
+|--------|---------|
+| **client** | Desktop application that connects to servers, manages shares, and facilitates peer connections |
+| **server** | Central server for peer discovery, search coordination, and connection proxying |
+| **common** | Shared code including path handling, database utilities, HTTP helpers, and RPC definitions |
+| **protocol** | QUIC-based protocol implementation for client-server and peer-to-peer communication |
+| **webui** | SolidJS-based web interface embedded into the client |
+| **rpcclient** | Command-line RPC client for server administration and testing |
+| **mkcert** | Modified version of [mkcert](https://github.com/FiloSottile/mkcert) for TLS certificate generation |
+| **upnp** | UPnP IGD implementation adapted from [Syncthing](https://github.com/syncthing/syncthing) |
+
+## Go Workspace Layout
+
+FriendNet uses Go 1.26's workspace feature (`go.work`) to manage multiple modules as a single project:
+
+```go go.work
+go 1.26.0
+
+use (
+    ./client
+    ./common
+    ./mkcert
+    ./protocol
+    ./rpcclient
+    ./server
+    ./upnp
+    ./webui
+)
+```
+
+This allows:
+- Unified dependency management across modules
+- Local module replacement without manual `replace` directives
+- Simplified development workflow
+
+## Technology Stack
+
+### Backend
+
+<CardGroup cols={2}>
+  <Card title="Go" icon="golang">
+    Primary language for all backend components (Go 1.26.0)
+  </Card>
+  <Card title="QUIC" icon="network-wired">
+    Transport protocol via [quic-go](https://github.com/quic-go/quic-go) for low-latency, multiplexed connections
+  </Card>
+  <Card title="Protocol Buffers" icon="file-code">
+    Message serialization for both QUIC protocol and RPC
+  </Card>
+  <Card title="Connect RPC" icon="plug">
+    [Connect RPC](https://connectrpc.com/) for client web UI communication
+  </Card>
+</CardGroup>
+
+### Frontend
+
+<CardGroup cols={2}>
+  <Card title="SolidJS" icon="bolt">
+    Reactive UI framework for the web interface
+  </Card>
+  <Card title="TypeScript" icon="code">
+    Type-safe frontend development
+  </Card>
+  <Card title="Vite" icon="fire">
+    Build tool and development server with hot module replacement
+  </Card>
+  <Card title="Connect-Web" icon="browser">
+    gRPC-Web client for communicating with the client RPC server
+  </Card>
+</CardGroup>
+
+### Database
+
+<Card title="SQLite" icon="database">
+  Embedded database using [modernc.org/sqlite](https://modernc.org/sqlite) (pure Go implementation)
+  - Client: stores configuration, shares, search index
+  - Server: stores users, rooms, session data
+</Card>
+
+## Component Interactions
+
+<Steps>
+  <Step title="Client Startup">
+    1. Client generates or loads TLS certificates using mkcert
+    2. Starts embedded HTTP server for web UI (localhost)
+    3. Starts Connect RPC server for web UI communication
+    4. Opens browser to web interface
+  </Step>
+  
+  <Step title="Server Connection">
+    1. Client establishes QUIC connection to server
+    2. Protocol version negotiation
+    3. Authentication handshake
+    4. Session established
+  </Step>
+  
+  <Step title="Peer Discovery">
+    1. Client announces shared files to server
+    2. Other clients can search via server
+    3. Server returns peer information for matches
+  </Step>
+  
+  <Step title="File Transfer">
+    **Direct Connection:**
+    - Client attempts direct QUIC connection to peer
+    - UPnP port forwarding if available
+    
+    **Proxied Connection:**
+    - Falls back to server-proxied transfer
+    - Server transparently forwards QUIC streams
+  </Step>
+</Steps>
+
+## Protocol Architecture
+
+The FriendNet protocol operates over QUIC with three message classes:
+
+<CardGroup cols={3}>
+  <Card title="C2S" icon="arrow-right">
+    Client to Server messages for authentication, search, and coordination
+  </Card>
+  <Card title="S2C" icon="arrow-left">
+    Server to Client messages for responses and notifications
+  </Card>
+  <Card title="C2C" icon="arrows-left-right">
+    Client to Client messages for file transfers (direct or proxied)
+  </Card>
+</CardGroup>
+
+### Protocol Features
+
+- **Version Negotiation**: Semantic versioning with compatibility checks
+- **BiDi Streams**: All communication uses QUIC bidirectional streams
+- **Message Layout**: Fixed header (8 bytes) + protobuf payload
+- **Proxy Streams**: Transparent stream forwarding for NAT traversal
+- **Path Normalization**: Strict path validation rules for security
+
+See the [protocol README](https://github.com/termermc/FriendNet/tree/main/protocol) for detailed specification.
+
+## Certificate Management
+
+FriendNet uses a modified version of [mkcert](https://github.com/FiloSottile/mkcert) to:
+
+<CardGroup cols={2}>
+  <Card title="Generate CA" icon="certificate">
+    Create local certificate authority for development
+  </Card>
+  <Card title="Issue Certificates" icon="file-certificate">
+    Generate TLS certificates for localhost web UI
+  </Card>
+  <Card title="Install Trust" icon="shield-check">
+    Install CA certificate in system trust store
+  </Card>
+  <Card title="Platform Support" icon="desktop">
+    Windows, macOS, and Linux support with NSS browsers
+  </Card>
+</CardGroup>
+
+This allows the web UI to run over HTTPS on localhost without browser warnings.
+
+## Key Design Decisions
+
+<AccordionGroup>
+  <Accordion title="Why QUIC instead of TCP?">
+    - Built-in TLS encryption
+    - Multiplexed streams without head-of-line blocking
+    - Faster connection establishment (0-RTT)
+    - Better NAT traversal
+    - Connection migration support
+  </Accordion>
+  
+  <Accordion title="Why embedded web UI?">
+    - Single binary distribution
+    - No separate web server required
+    - Consistent UI across platforms
+    - Localhost-only for security
+    - Hot reloading during development
+  </Accordion>
+  
+  <Accordion title="Why Connect RPC over gRPC?">
+    - Better web browser support
+    - HTTP/1.1 and HTTP/2 compatibility
+    - Simpler proxy configuration
+    - Smaller bundle size for web clients
+  </Accordion>
+  
+  <Accordion title="Why SQLite over other databases?">
+    - No external dependencies
+    - Simple deployment
+    - Sufficient for single-instance use
+    - Pure Go implementation available
+    - ACID compliance
+  </Accordion>
+</AccordionGroup>
+
+## Security Considerations
+
+<Warning>
+  FriendNet is work-in-progress software. Security features are still being developed and hardened.
+</Warning>
+
+Current security measures:
+
+- TLS encryption for all connections (QUIC)
+- Authentication required for server connections
+- Password hashing with MCF (Modular Crypt Format)
+- Strict path validation to prevent directory traversal
+- Localhost-only web interface
+- Self-signed certificates for development
+
+## Future Architecture Plans
+
+<Note>
+  These features are planned but not yet implemented:
+  - End-to-end encryption for file transfers
+  - Distributed hash table (DHT) for serverless operation
+  - Plugin system for extensibility
+  - Mobile client applications
+</Note>

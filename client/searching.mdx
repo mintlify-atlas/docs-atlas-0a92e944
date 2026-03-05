@@ -1,0 +1,392 @@
+---
+title: Searching for Files
+description: Find files across all shares using powerful search features
+---
+
+## How to Search for Files
+
+The FriendNet search feature allows you to quickly find files across all users in a server room.
+
+<Steps>
+  <Step title="Navigate to Search Page">
+    Go to the search page for your server: `/server/:uuid/search`
+  </Step>
+  
+  <Step title="Enter Search Query">
+    Type your search query in the search box. The search begins automatically as you type.
+    
+    ```tsx
+    <input
+        class={styles.fieldQuery}
+        type="text"
+        placeholder="Search Query"
+        value={query()}
+        onChange={(e) => setQuery(e.currentTarget.value)}
+    />
+    ```
+  </Step>
+  
+  <Step title="Optionally Filter by User">
+    To search only a specific user's shares, enter their username:
+    
+    ```tsx
+    <input
+        class={styles.fieldUsername}
+        type="text"
+        placeholder="Optional Username"
+        value={username()}
+        onChange={(e) => setUsername(e.currentTarget.value)}
+    />
+    ```
+  </Step>
+  
+  <Step title="Browse Results">
+    Results appear in real-time as they're found. Click on any file to preview it or use the action buttons to download.
+  </Step>
+</Steps>
+
+## Search Implementation
+
+The search uses streaming for real-time results:
+
+```tsx
+const stream = client.streamSearch({
+    serverUuid: uuid,
+    username: username || undefined,
+    query: query,
+})
+
+for await (const res of stream) {
+    newItems.push({
+        meta: res.file!,
+        data: res,
+    })
+}
+```
+
+## Search Syntax and Filters
+
+### Basic Search
+
+Simply type any text to search for files containing that text in their name:
+
+```
+holiday
+```
+
+This finds files like:
+- `holiday_2023.jpg`
+- `summer_holiday_video.mp4`
+- `Holiday Plans.pdf`
+
+### Extension Filters
+
+Use `ext:` to filter by file extension:
+
+```
+ext:mp3
+```
+
+Finds all MP3 files across all shares.
+
+```
+vacation ext:jpg
+```
+
+Finds JPG files with "vacation" in the name.
+
+### Multiple Extensions
+
+You can search for multiple extensions:
+
+```
+ext:jpg ext:png ext:gif
+```
+
+### Path Matching
+
+Search matches both the filename and the directory path:
+
+```
+music/rock
+```
+
+Finds files in directories containing "music" and "rock".
+
+## Fuzzy Search
+
+The client uses [Fuse.js](https://fusejs.io/) for fuzzy matching, which allows for approximate matches:
+
+```tsx
+const fuse = new Fuse(newRes, {
+    keys: [
+        {
+            name: 'meta.name',
+            weight: 2,
+        },
+        {
+            name: 'data.directoryPath',
+            weight: 1,
+        },
+    ],
+})
+
+const fuzzyRes = fuse.search(fuzzyQ)
+```
+
+### Fuzzy Matching Features
+
+<Card title="Fuzzy Search Supports" icon="wand-magic-sparkles">
+  - Typo tolerance ("holday" finds "holiday")
+  - Partial matches ("doc" finds "document")
+  - Order independence ("blue sky" finds "sky blue")
+  - Filename weighted higher than path
+</Card>
+
+### Search Weighting
+
+The search algorithm prioritizes:
+
+1. **Filename matches** (weight: 2) - Files with matching names rank higher
+2. **Directory path matches** (weight: 1) - Path matches rank lower
+
+## Browsing Other Users' Shares
+
+### User Identification
+
+Search results show which user owns each file:
+
+```tsx
+const prefix = (
+    <div class={styles.username}>👤{username}</div>
+)
+```
+
+### Navigating to User Shares
+
+From search results, you can:
+
+1. **Open the containing folder** - Click 📁 to browse the directory
+2. **View user profile** - Click on the username to see their profile
+3. **Download the file** - Click 💾 to download
+
+### Direct Directory Links
+
+Each search result includes a link to the containing directory:
+
+```tsx
+const dirBrowsePath = makeBrowsePath(
+    uuid,
+    username,
+    item.data.directoryPath,
+)
+
+<A title="Open Directory" href={dirBrowsePath}>
+    📁
+</A>
+```
+
+## Search Performance
+
+### Result Limits
+
+Search results are limited to prevent overwhelming the UI:
+
+```tsx
+const maxItems = 1_000
+
+if (fuzzyRes.length > maxItems) {
+    fuzzyRes.length = maxItems
+}
+```
+
+<Info>
+  If your search returns more than 1,000 results, only the top 1,000 matches will be displayed. Refine your query to get more specific results.
+</Info>
+
+### Debounced Updates
+
+Results are batched and updated every 100ms for smooth performance:
+
+```tsx
+const debounceInterval = setInterval(() => {
+    if (newItems.length === 0) {
+        return
+    }
+    
+    const newRes = [...results(), ...newItems]
+    // Sort and update results
+    setResults(fuzzyRes.map((x) => x.item))
+    newItems.length = 0
+}, 100)
+```
+
+### Streaming Results
+
+Search uses server-side streaming to deliver results as they're found:
+
+- Results appear immediately as peers respond
+- No need to wait for the entire search to complete
+- Smooth real-time user experience
+
+## Search Result Actions
+
+### For Files
+
+When you find a file, you have several options:
+
+```tsx
+actions: (
+    <>
+        <A title="Open Directory" href={dirBrowsePath}>
+            📁
+        </A>
+        <a title="Open File" href={nonDlUrl} target="_blank">
+            🔗
+        </a>
+        <a title="Download File" href={dlUrl}>
+            💾
+        </a>
+    </>
+)
+```
+
+<CardGroup cols={3}>
+  <Card title="📁 Open Directory" icon="folder">
+    Navigate to the folder containing this file
+  </Card>
+  <Card title="🔗 Open File" icon="link">
+    Open the file in a new browser tab
+  </Card>
+  <Card title="💾 Download" icon="download">
+    Download the file to your computer
+  </Card>
+</CardGroup>
+
+### For Directories
+
+When you find a directory in search results:
+
+```tsx
+if (item.meta.isDir) {
+    return {
+        prefix: prefix,
+        href: makeBrowsePath(uuid, username, filePath),
+    }
+}
+```
+
+Click on the directory to browse its contents.
+
+### File Preview
+
+Click on a search result to preview supported file types:
+
+```tsx
+onClick: () => {
+    state.previewFile(uuid, username, filePath)
+}
+```
+
+Supported preview types:
+- Images (JPG, PNG, GIF, WebP, etc.)
+- Videos (MP4, WebM, etc.)
+- Audio (MP3, WAV, FLAC, etc.)
+- Text files (TXT, MD, code files, etc.)
+
+## Advanced Search Tips
+
+<Tip>
+  **Narrow Your Search**: Use extension filters and username filters to reduce result sets and find files faster.
+</Tip>
+
+<Tip>
+  **Use Directory Paths**: Include parent directory names in your query to find files in specific locations (e.g., "photos/vacation").
+</Tip>
+
+<Tip>
+  **Partial Words**: The fuzzy search works great with partial words - you don't need to type the complete filename.
+</Tip>
+
+## Search Limitations
+
+### What Search Indexes
+
+The search operates on:
+
+- ✅ File and folder names
+- ✅ Directory paths
+- ✅ File extensions
+- ❌ File contents (not indexed)
+- ❌ File metadata (except name and path)
+
+<Warning>
+  FriendNet does not perform full-text search inside files. Only filenames and paths are searchable.
+</Warning>
+
+### Network Considerations
+
+- Search queries are broadcast to all peers in the room
+- Results depend on peers being online and responsive
+- Offline peers won't appear in search results
+
+## Troubleshooting
+
+### No Results Found
+
+- Verify other users have shared files
+- Check that users are online and connected
+- Try a simpler query (fewer words)
+- Remove extension filters to broaden results
+
+### Slow Results
+
+- Large rooms with many users may take longer
+- Users with slow connections may respond slowly
+- Network issues can delay result streaming
+
+### Missing Expected Files
+
+- The file's owner may need to re-index their share
+- Check that the file is actually shared (not in a subfolder outside the share)
+- Verify you're searching the correct server/room
+
+### Search Errors
+
+```tsx
+catch (err) {
+    if (err instanceof ConnectError) {
+        if (err.code === Code.Canceled) {
+            return // Search was intentionally canceled
+        }
+        setError(err.message)
+    }
+}
+```
+
+If you see an error message:
+
+- Check the logs at `/logs` for details
+- Verify your connection to the server
+- Try refreshing the page
+
+## Search URL Format
+
+Search queries are stored in the URL for bookmarking and sharing:
+
+```
+/server/:uuid/search?query=vacation&username=alice
+```
+
+You can bookmark specific searches or share search URLs with others.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Download Files" icon="download" href="/client/downloading">
+    Learn about downloading files and connection methods
+  </Card>
+  <Card title="Browse Shares" icon="folder" href="/client/getting-started#browsing-user-shares">
+    Navigate through user shares manually
+  </Card>
+</CardGroup>

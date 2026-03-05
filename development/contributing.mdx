@@ -1,0 +1,450 @@
+---
+title: Contributing
+description: Guidelines for contributing to FriendNet
+---
+
+Thank you for your interest in contributing to FriendNet! This guide will help you get started.
+
+<Note>
+  FriendNet is currently in active development. The contribution process and guidelines may evolve as the project matures.
+</Note>
+
+## Ways to Contribute
+
+<CardGroup cols={2}>
+  <Card title="Report Bugs" icon="bug">
+    Found a bug? [Open an issue](https://github.com/termermc/FriendNet/issues/new)
+  </Card>
+  <Card title="Suggest Features" icon="lightbulb">
+    Have an idea? Start a [discussion](https://github.com/termermc/FriendNet/discussions)
+  </Card>
+  <Card title="Improve Docs" icon="book">
+    Documentation improvements are always welcome
+  </Card>
+  <Card title="Submit Code" icon="code">
+    Fix bugs or implement features via pull requests
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+<Steps>
+  <Step title="Fork the Repository">
+    Click the "Fork" button on [GitHub](https://github.com/termermc/FriendNet)
+  </Step>
+  
+  <Step title="Clone Your Fork">
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/FriendNet.git
+    cd FriendNet
+    ```
+  </Step>
+  
+  <Step title="Set Up Development Environment">
+    Follow the [Building from Source](/development/building) guide to set up your environment.
+  </Step>
+  
+  <Step title="Create a Branch">
+    ```bash
+    git checkout -b feature/your-feature-name
+    # or
+    git checkout -b fix/bug-description
+    ```
+  </Step>
+</Steps>
+
+## Code Style Guidelines
+
+### Go Code
+
+FriendNet follows standard Go conventions:
+
+<CodeGroup>
+
+```go Good Example
+// Package comment describing the package
+package client
+
+// PublicFunction has a clear, descriptive name
+// and a comment explaining what it does.
+func PublicFunction(ctx context.Context, id string) (*Result, error) {
+    if id == "" {
+        return nil, errors.New("id cannot be empty")
+    }
+    
+    // Implementation...
+    return &Result{}, nil
+}
+```
+
+```go Bad Example
+// No package comment
+package client
+
+// No comment, unclear abbreviation
+func PubFunc(c context.Context, i string) (*Result, error) {
+    // No validation
+    
+    return &Result{}, nil
+}
+```
+
+</CodeGroup>
+
+**Go Style Rules:**
+
+- Use `gofmt` to format all Go code
+- Follow [Effective Go](https://go.dev/doc/effective_go) guidelines
+- Write godoc comments for all exported types and functions
+- Use meaningful variable names (avoid single-letter names except in short scopes)
+- Handle errors explicitly; never ignore them
+- Prefer simple, readable code over clever code
+
+**Run Go Formatting:**
+
+```bash
+# Format all Go files
+gofmt -w .
+
+# Or use your editor's format-on-save
+```
+
+### TypeScript/JavaScript Code
+
+The web UI follows modern TypeScript conventions:
+
+<CodeGroup>
+
+```typescript Good Example
+interface User {
+  id: string;
+  username: string;
+  isOnline: boolean;
+}
+
+// Clear function with proper types
+function findUserById(users: User[], id: string): User | undefined {
+  return users.find((user) => user.id === id);
+}
+```
+
+```typescript Bad Example
+// Using 'any' - avoid this
+function findUser(users: any, id: any): any {
+  return users.find((u: any) => u.id === id);
+}
+```
+
+</CodeGroup>
+
+**TypeScript Style Rules:**
+
+- Use Prettier for formatting (configured in `webui/prettier.config.mjs`)
+- Enable strict TypeScript checking
+- Avoid `any` types; use proper type annotations
+- Use functional components in SolidJS
+- Follow reactive programming patterns (SolidJS signals)
+
+**Run TypeScript Formatting:**
+
+```bash
+cd webui
+npm run fmt
+```
+
+**Type Check:**
+
+```bash
+cd webui
+npm run check
+```
+
+## Commit Message Guidelines
+
+Write clear, descriptive commit messages:
+
+<CodeGroup>
+
+```bash Good Examples
+feat: add search pagination to web UI
+
+fix: prevent crash when server connection drops
+
+docs: update building instructions for Windows
+
+refactor: simplify path validation logic
+
+test: add unit tests for path normalization
+```
+
+```bash Bad Examples
+update stuff
+fix bug
+wip
+changes
+```
+
+</CodeGroup>
+
+**Commit Message Format:**
+
+```
+<type>: <short description>
+
+<optional longer description>
+
+<optional footer>
+```
+
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `refactor`: Code refactoring (no functional changes)
+- `test`: Adding or updating tests
+- `chore`: Build process, tooling, dependencies
+- `perf`: Performance improvements
+
+## Pull Request Process
+
+<Steps>
+  <Step title="Ensure Your Code Works">
+    - Run tests: `go test ./...`
+    - Build successfully: `make client` and `make server`
+    - Test manually with your changes
+  </Step>
+  
+  <Step title="Update Documentation">
+    - Update relevant documentation if you changed APIs
+    - Add comments to exported functions/types
+    - Update README.md if needed
+  </Step>
+  
+  <Step title="Push Your Branch">
+    ```bash
+    git push origin feature/your-feature-name
+    ```
+  </Step>
+  
+  <Step title="Open a Pull Request">
+    1. Go to [FriendNet on GitHub](https://github.com/termermc/FriendNet)
+    2. Click "Pull Requests" → "New Pull Request"
+    3. Select your fork and branch
+    4. Fill out the PR template with:
+       - Description of changes
+       - Motivation/reasoning
+       - Testing performed
+       - Screenshots (if UI changes)
+  </Step>
+  
+  <Step title="Respond to Feedback">
+    - Address review comments
+    - Make requested changes
+    - Push updates to your branch
+  </Step>
+</Steps>
+
+## Pull Request Checklist
+
+Before submitting a PR, ensure:
+
+<Tabs>
+  <Tab title="Code Quality">
+    - [ ] Code follows style guidelines (gofmt, prettier)
+    - [ ] All tests pass
+    - [ ] New code has appropriate test coverage
+    - [ ] No commented-out code or debug statements
+    - [ ] No hardcoded values that should be configurable
+  </Tab>
+  
+  <Tab title="Documentation">
+    - [ ] Godoc comments on public Go APIs
+    - [ ] README updated if needed
+    - [ ] Inline comments for complex logic
+    - [ ] Changelog entry (if applicable)
+  </Tab>
+  
+  <Tab title="Git History">
+    - [ ] Commits are logical and atomic
+    - [ ] Commit messages are clear and descriptive
+    - [ ] Branch is up to date with main
+    - [ ] No merge commits (rebase if needed)
+  </Tab>
+</Tabs>
+
+## Code Review Process
+
+What to expect:
+
+1. **Initial Review** (1-3 days): A maintainer will review your PR
+2. **Feedback**: You may receive requests for changes or questions
+3. **Iteration**: Make changes and push updates
+4. **Approval**: Once approved, a maintainer will merge your PR
+
+<Tip>
+  Be patient and respectful. Maintainers are often busy. If you haven't heard back in a week, a polite ping is okay.
+</Tip>
+
+## Testing Guidelines
+
+### Writing Tests
+
+All new features and bug fixes should include tests:
+
+<CodeGroup>
+
+```go Go Test Example
+package common
+
+import "testing"
+
+func TestValidatePath(t *testing.T) {
+    tests := []struct {
+        name    string
+        path    string
+        wantErr bool
+    }{
+        {"valid path", "/foo/bar", false},
+        {"no leading slash", "foo/bar", true},
+        {"trailing slash", "/foo/bar/", true},
+        {"double slash", "/foo//bar", true},
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := ValidatePath(tt.path)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("ValidatePath() error = %v, wantErr %v", err, tt.wantErr)
+            }
+        })
+    }
+}
+```
+
+```typescript TypeScript Test Example (Vitest)
+import { describe, it, expect } from 'vitest';
+import { formatFileSize } from './utils';
+
+describe('formatFileSize', () => {
+  it('formats bytes correctly', () => {
+    expect(formatFileSize(0)).toBe('0 B');
+    expect(formatFileSize(1024)).toBe('1.0 KB');
+    expect(formatFileSize(1048576)).toBe('1.0 MB');
+  });
+  
+  it('handles negative values', () => {
+    expect(formatFileSize(-1)).toBe('0 B');
+  });
+});
+```
+
+</CodeGroup>
+
+### Running Tests
+
+```bash
+# All Go tests
+go test ./...
+
+# Specific package with verbose output
+cd client
+go test -v ./room
+
+# With coverage
+go test -cover ./...
+
+# TypeScript tests (when configured)
+cd webui
+npm test
+```
+
+## Community Guidelines
+
+<Card title="Code of Conduct" icon="handshake">
+  Be respectful, inclusive, and professional. Harassment and discrimination are not tolerated.
+</Card>
+
+### Expected Behavior
+
+- **Be respectful**: Treat others with kindness and professionalism
+- **Be constructive**: Provide helpful feedback and suggestions
+- **Be patient**: Remember that everyone is learning
+- **Be collaborative**: Work together to improve the project
+
+### Unacceptable Behavior
+
+- Harassment, discrimination, or personal attacks
+- Trolling, insulting comments, or political arguments  
+- Publishing others' private information
+- Any conduct that would be inappropriate in a professional setting
+
+## License
+
+By contributing to FriendNet, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.html).
+
+<Warning>
+  The AGPL-3.0 is a strong copyleft license that requires any modified versions of FriendNet used over a network to provide source code to users.
+</Warning>
+
+Key points about AGPL-3.0:
+
+- You must release source code if you modify and deploy the software
+- All derivative works must also be AGPL-3.0
+- Commercial use is allowed
+- You can charge for the software, but must provide source code
+- No warranty is provided
+
+## Getting Help
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/termermc/FriendNet/issues">
+    Report bugs and request features
+  </Card>
+  <Card title="GitHub Discussions" icon="comments" href="https://github.com/termermc/FriendNet/discussions">
+    Ask questions and discuss ideas
+  </Card>
+  <Card title="Documentation" icon="book" href="/development/architecture">
+    Read the architecture guide
+  </Card>
+  <Card title="Official Website" icon="globe" href="https://friendnet.org">
+    Learn more about FriendNet
+  </Card>
+</CardGroup>
+
+## Recognition
+
+Contributors are recognized in several ways:
+
+- **Git History**: Your commits preserve your authorship
+- **Release Notes**: Significant contributions are mentioned
+- **Acknowledgements**: Major contributors may be listed in ACKNOWLEDGEMENTS.md
+
+<Note>
+  This project incorporates code from other open source projects. See [ACKNOWLEDGEMENTS.md](https://github.com/termermc/FriendNet/blob/main/ACKNOWLEDGEMENTS.md) for attribution.
+</Note>
+
+## Next Steps
+
+<Steps>
+  <Step title="Read the Architecture Guide">
+    Understand how FriendNet works: [Architecture](/development/architecture)
+  </Step>
+  
+  <Step title="Set Up Your Dev Environment">
+    Follow the build guide: [Building from Source](/development/building)
+  </Step>
+  
+  <Step title="Find an Issue to Work On">
+    Look for issues labeled `good first issue` or `help wanted` on [GitHub](https://github.com/termermc/FriendNet/issues)
+  </Step>
+  
+  <Step title="Join the Community">
+    Introduce yourself in [GitHub Discussions](https://github.com/termermc/FriendNet/discussions)
+  </Step>
+</Steps>
+
+## Thank You!
+
+Your contributions help make FriendNet better for everyone. Whether you're fixing a typo, reporting a bug, or implementing a major feature, your efforts are appreciated.
+
+Happy coding! 🚀

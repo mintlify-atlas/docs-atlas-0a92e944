@@ -1,0 +1,667 @@
+---
+title: Server Administration
+description: Manage users, rooms, and maintain your FriendNet server
+---
+
+## Overview
+
+This guide covers day-to-day administration tasks for your FriendNet server, including user management, room management, monitoring, and maintenance.
+
+## Using the RPC Client
+
+The `friendnet-rpcclient` CLI tool is the primary way to administer your server.
+
+### Building the RPC Client
+
+```bash
+make rpcclient
+```
+
+This creates the `friendnet-rpcclient` binary in the `rpcclient/` directory.
+
+### Connecting to the Server
+
+The rpcclient can connect via Unix socket or HTTP:
+
+```bash
+# Unix socket (default)
+./friendnet-rpcclient -addr unix://friendnet-server.sock
+
+# HTTP
+./friendnet-rpcclient -addr http://127.0.0.1:8080
+
+# Custom Unix socket path
+./friendnet-rpcclient -addr unix:///var/run/friendnet-server.sock
+```
+
+<Info>
+Unix sockets provide the most secure access as they're restricted to local users. Use HTTP only when necessary.
+</Info>
+
+### Interactive Mode
+
+Launch the interactive CLI:
+
+```bash
+./friendnet-rpcclient
+```
+
+```
+Welcome to the FriendNet server RPC CLI.
+Type "help" for a list of commands.
+> 
+```
+
+### One-Shot Commands
+
+Execute a single command and exit:
+
+```bash
+./friendnet-rpcclient -cmd "getrooms"
+```
+
+## Room Management
+
+### List All Rooms
+
+```bash
+> getrooms
+main (online users: 3)
+gaming (online users: 0)
+```
+
+```go rpcclient/cli.go
+func (c *Cli) cmdGetRooms(args []string) error {
+    resp, err := c.client.GetRooms(context.Background(), &v1.GetRoomsRequest{})
+    if err != nil {
+        return err
+    }
+
+    rooms := resp.GetRooms()
+    if len(rooms) == 0 {
+        fmt.Println("No rooms.")
+        return nil
+    }
+    for _, room := range rooms {
+        fmt.Printf("%s (online users: %d)\n", room.GetName(), room.GetOnlineUserCount())
+    }
+    return nil
+}
+```
+
+### Get Room Information
+
+```bash
+> getroominfo main
+main (online users: 3)
+```
+
+### Create a Room
+
+```bash
+> createroom movies
+Created room movies (online users: 0)
+```
+
+<Note>
+Rooms are automatically normalized. Mixed case and whitespace are handled consistently.
+</Note>
+
+### Delete a Room
+
+```bash
+> deleteroom movies
+Deleted room "movies".
+```
+
+<Warning>
+Deleting a room removes all associated accounts and disconnects all online users. This action cannot be undone.
+</Warning>
+
+### Room Storage
+
+Rooms are stored in the SQLite database:
+
+```go server/storage/storage.go
+func (s *Storage) CreateRoom(ctx context.Context, room common.NormalizedRoomName) error {
+    _, err := s.Db.ExecContext(ctx, `insert into room (name) values (?)`, room.String())
+    if err != nil {
+        return fmt.Errorf(`failed to create room %q: %w`, room.String(), err)
+    }
+    return nil
+}
+```
+
+## User Management
+
+### List Accounts in a Room
+
+```bash
+> getaccounts main
+alice
+bob
+charlie
+```
+
+### Create an Account
+
+With a specific password:
+
+```bash
+> createaccount main alice mySecurePass123
+Account "alice" created in room "main".
+```
+
+Generate a random password:
+
+```bash
+> createaccount main bob
+Generated password: xK9mN2pQ4rT8
+```
+
+<Info>
+If no password is provided, the server generates a cryptographically random password automatically.
+</Info>
+
+```go server/rpc.go
+func (s *RpcServer) getOrGenPass(pass string) (string, bool) {
+    if pass == "" {
+        var buf [12]byte
+        _, _ = rand.Read(buf[:])
+        return base64.RawURLEncoding.EncodeToString(buf[:]), true
+    }
+    return pass, false
+}
+```
+
+### Update Account Password
+
+Set a new password:
+
+```bash
+> updateaccountpassword main alice newPassword456
+Updated password for "alice" in room "main".
+```
+
+Generate a new random password:
+
+```bash
+> updateaccountpassword main bob
+Generated password: aB7cD3eF9gH2
+```
+
+### Delete an Account
+
+```bash
+> deleteaccount main charlie
+Deleted account "charlie" in room "main".
+```
+
+<Warning>
+Deleting an account immediately kicks the user if they're online and prevents them from logging in again.
+</Warning>
+
+### Password Requirements
+
+The server enforces these password requirements:
+
+- Minimum 8 characters
+- Maximum 64 characters  
+- Cannot contain the username
+
+```go server/cmd/server/main.go
+passReqs := password.NewRequirements(
+    password.WithMinLen(8),
+    password.WithMaxLen(64),
+    password.WithCannotContainUsername(),
+)
+```
+
+## Monitoring Online Users
+
+### List Online Users
+
+```bash
+> getonlineusers main
+alice
+bob
+```
+
+If no users are online:
+
+```bash
+> getonlineusers gaming
+No online users.
+```
+
+### Get Online User Info
+
+```bash
+> getonlineuserinfo main alice
+alice
+```
+
+<Note>
+Currently, user info only includes the username. Future versions may include connection status, IP addresses, and activity information.
+</Note>
+
+### Kicking Users
+
+Users are automatically disconnected when you delete their account:
+
+```go server/rpc.go
+func (s *RpcServer) DeleteAccount(ctx context.Context, req *v1.DeleteAccountRequest) (*v1.DeleteAccountResponse, error) {
+    // ...
+    
+    // Kick client before deleting account in storage.
+    _ = r.KickClientByUsername(username)
+    
+    err = r.DeleteAccount(ctx, username)
+    // ...
+}
+```
+
+## Monitoring and Logs
+
+### Log Format
+
+The server outputs structured JSON logs to stdout:
+
+```json
+{"level":"info","msg":"server listening","addr":"0.0.0.0:20038"}
+{"level":"info","msg":"RPC listening","addr":"unix://friendnet-server.sock"}
+{"level":"debug","msg":"client connected","remote":"192.168.1.100:54321"}
+```
+
+### Log Levels
+
+```go server/cmd/server/main.go
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+```
+
+Available levels:
+- `debug` - Detailed information
+- `info` - General informational messages
+- `warn` - Warning messages
+- `error` - Error messages
+
+### Viewing Logs
+
+#### Stdout/Stderr
+
+```bash
+./friendnet-server | tee server.log
+```
+
+#### systemd
+
+```bash
+sudo journalctl -u friendnet-server -f
+```
+
+#### Docker
+
+```bash
+docker logs -f friendnet-server
+```
+
+### Log Rotation
+
+For production deployments, use a log rotation tool:
+
+```bash
+./friendnet-server 2>&1 | rotatelogs /var/log/friendnet/server.%Y%m%d.log 86400
+```
+
+Or configure systemd to handle rotation:
+
+```ini /etc/systemd/system/friendnet-server.service
+[Service]
+StandardOutput=journal
+StandardError=journal
+```
+
+## Database Maintenance
+
+### Database Location
+
+The SQLite database path is configured in `server.json`:
+
+```json
+{
+  "db_path": "server.db"
+}
+```
+
+### Database Files
+
+SQLite creates multiple files:
+
+- `server.db` - Main database file
+- `server.db-wal` - Write-Ahead Log
+- `server.db-shm` - Shared memory file
+
+<Warning>
+Always backup all three files together to ensure database consistency.
+</Warning>
+
+### Backup
+
+#### Online Backup
+
+Use SQLite's backup command while the server is running:
+
+```bash
+sqlite3 server.db ".backup server-backup.db"
+```
+
+#### Offline Backup
+
+Stop the server and copy the database files:
+
+```bash
+sudo systemctl stop friendnet-server
+cp server.db* /backup/location/
+sudo systemctl start friendnet-server
+```
+
+#### Automated Backup Script
+
+```bash backup.sh
+#!/bin/bash
+BACKUP_DIR="/backup/friendnet"
+DATE=$(date +%Y%m%d-%H%M%S)
+
+mkdir -p "$BACKUP_DIR"
+sqlite3 /var/lib/friendnet/server.db ".backup $BACKUP_DIR/server-$DATE.db"
+
+# Keep only last 30 days
+find "$BACKUP_DIR" -name "server-*.db" -mtime +30 -delete
+```
+
+Add to cron:
+
+```cron
+0 2 * * * /usr/local/bin/backup-friendnet.sh
+```
+
+### Restore from Backup
+
+```bash
+sudo systemctl stop friendnet-server
+cp /backup/location/server.db /var/lib/friendnet/server.db
+chown friendnet:friendnet /var/lib/friendnet/server.db
+sudo systemctl start friendnet-server
+```
+
+### Database Optimization
+
+The server uses WAL mode for better performance:
+
+```go server/storage/storage.go
+startupStmts := []string{
+    `PRAGMA foreign_keys = ON`,
+    `PRAGMA journal_mode = WAL`,
+    `PRAGMA synchronous = NORMAL`,
+}
+```
+
+#### Manual VACUUM
+
+Periodically optimize the database:
+
+```bash
+sqlite3 server.db "VACUUM;"
+```
+
+#### Check Integrity
+
+The server checks database integrity on startup:
+
+```go server/storage/storage.go
+icRes := db.QueryRow(`PRAGMA integrity_check`)
+var icVal string
+err = icRes.Scan(&icVal)
+if err != nil {
+    return nil, fmt.Errorf("failed to check database integrity: %w", err)
+}
+
+if icVal != "ok" {
+    return nil, fmt.Errorf("database integrity check failed: %s", icVal)
+}
+```
+
+Manual check:
+
+```bash
+sqlite3 server.db "PRAGMA integrity_check;"
+```
+
+## Server Shutdown
+
+### Graceful Shutdown
+
+The server handles SIGTERM and SIGINT gracefully:
+
+```go server/cmd/server/main.go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+go func() {
+    <-ctx.Done()
+    logger.Info("shutdown signal received, closing server")
+    
+    var wg sync.WaitGroup
+    for _, rpc := range rpcs {
+        wg.Go(func() {
+            _ = rpc.Close()
+        })
+    }
+    wg.Wait()
+    _ = srv.Close()
+}()
+```
+
+### Manual Shutdown
+
+#### Interactive
+
+Press `Ctrl+C` to send SIGINT:
+
+```bash
+^C
+{"level":"info","msg":"shutdown signal received, closing server"}
+{"level":"info","msg":"server closed"}
+```
+
+#### systemd
+
+```bash
+sudo systemctl stop friendnet-server
+```
+
+#### Docker
+
+```bash
+docker stop friendnet-server
+```
+
+### Forced Shutdown
+
+If the server hangs, force kill after 10 seconds:
+
+```bash
+timeout 10 kill $PID || kill -9 $PID
+```
+
+## RPC Method Reference
+
+Complete list of available RPC methods:
+
+<AccordionGroup>
+  <Accordion title="GetRooms">
+    Lists all rooms on the server.
+    
+    **Usage:** `getrooms`
+    
+    **Permissions:** Read-only
+  </Accordion>
+  
+  <Accordion title="GetRoomInfo">
+    Gets detailed information about a specific room.
+    
+    **Usage:** `getroominfo <room>`
+    
+    **Permissions:** Read-only
+  </Accordion>
+  
+  <Accordion title="GetOnlineUsers">
+    Lists all online users in a room.
+    
+    **Usage:** `getonlineusers <room>`
+    
+    **Permissions:** Read-only
+  </Accordion>
+  
+  <Accordion title="GetOnlineUserInfo">
+    Gets information about a specific online user.
+    
+    **Usage:** `getonlineuserinfo <room> <username>`
+    
+    **Permissions:** Read-only
+  </Accordion>
+  
+  <Accordion title="GetAccounts">
+    Lists all accounts in a room.
+    
+    **Usage:** `getaccounts <room>`
+    
+    **Permissions:** Read-only
+  </Accordion>
+  
+  <Accordion title="CreateRoom">
+    Creates a new room.
+    
+    **Usage:** `createroom <room>`
+    
+    **Permissions:** Administrative
+  </Accordion>
+  
+  <Accordion title="DeleteRoom">
+    Deletes a room and all its accounts.
+    
+    **Usage:** `deleteroom <room>`
+    
+    **Permissions:** Administrative
+    
+    **Warning:** This action cannot be undone.
+  </Accordion>
+  
+  <Accordion title="CreateAccount">
+    Creates a new user account.
+    
+    **Usage:** `createaccount <room> <username> [password]`
+    
+    **Permissions:** Administrative
+    
+    If password is omitted, a random one is generated.
+  </Accordion>
+  
+  <Accordion title="DeleteAccount">
+    Deletes a user account and kicks them if online.
+    
+    **Usage:** `deleteaccount <room> <username>`
+    
+    **Permissions:** Administrative
+  </Accordion>
+  
+  <Accordion title="UpdateAccountPassword">
+    Updates a user's password.
+    
+    **Usage:** `updateaccountpassword <room> <username> [password]`
+    
+    **Permissions:** Administrative
+    
+    If password is omitted, a random one is generated.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### RPC Connection Failed
+
+**Unix Socket:**
+
+```bash
+# Check if socket exists
+ls -la friendnet-server.sock
+
+# Check permissions
+chmod 666 friendnet-server.sock
+```
+
+**HTTP:**
+
+```bash
+# Check if server is listening
+ss -tlnp | grep 8080
+
+# Test with curl
+curl http://127.0.0.1:8080
+```
+
+### Method Not Allowed
+
+Verify the method is in `allowed_methods` for the RPC interface you're connecting to.
+
+### Database Locked
+
+Ensure only one server instance is running:
+
+```bash
+ps aux | grep friendnet-server
+```
+
+### High Memory Usage
+
+Monitor with:
+
+```bash
+ps aux | grep friendnet-server
+top -p $(pgrep friendnet-server)
+```
+
+For large databases, consider increasing available memory or optimizing queries.
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="RPC Access Control" icon="lock">
+    - Use Unix sockets for local admin access
+    - Restrict HTTP interfaces to localhost
+    - Limit `allowed_methods` for public interfaces
+    - Never expose full admin access over HTTP
+  </Card>
+  
+  <Card title="Database Security" icon="database">
+    - Set proper file permissions (600)
+    - Regular backups
+    - Store in secure location
+    - Monitor access logs
+  </Card>
+  
+  <Card title="Certificate Management" icon="certificate">
+    - Secure PEM file (600 permissions)
+    - Rotate certificates periodically
+    - Use strong key sizes
+    - Keep private keys secure
+  </Card>
+  
+  <Card title="User Management" icon="users">
+    - Enforce strong passwords
+    - Regular account audits
+    - Remove inactive accounts
+    - Monitor failed login attempts
+  </Card>
+</CardGroup>

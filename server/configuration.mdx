@@ -1,0 +1,447 @@
+---
+title: Server Configuration
+description: Configure the FriendNet server with detailed options
+---
+
+## Configuration File Format
+
+The FriendNet server uses a JSON configuration file (default: `server.json`). The server automatically creates this file with default values on first run.
+
+### Configuration Structure
+
+```go server/config/config.go
+type ServerConfig struct {
+    // The addresses to listen on.
+    // Each entry should be HOST:PORT.
+    // IPv6 addresses should be enclosed in square brackets.
+    Listen []string `json:"listen"`
+
+    // The path to the SQLite database file.
+    DbPath string `json:"db_path"`
+
+    // The path to the TLS certificate file in PEM format.
+    PemPath string `json:"pem_path"`
+
+    // The configuration for the server's RPC service.
+    Rpc ServerRpcConfig `json:"rpc"`
+}
+```
+
+## Listen Addresses
+
+The `listen` array specifies which network addresses the server listens on for client connections.
+
+### IPv4 and IPv6
+
+```json server.json
+{
+  "listen": [
+    "0.0.0.0:20038",      // Listen on all IPv4 interfaces
+    "[::]:20038"           // Listen on all IPv6 interfaces
+  ]
+}
+```
+
+<Note>
+IPv6 addresses must be enclosed in square brackets, e.g., `[::1]:20038` or `[2001:db8::1]:20038`.
+</Note>
+
+### Localhost Only
+
+For testing or local-only access:
+
+```json server.json
+{
+  "listen": [
+    "127.0.0.1:20038",
+    "[::1]:20038"
+  ]
+}
+```
+
+### Custom Port
+
+```json server.json
+{
+  "listen": [
+    "0.0.0.0:8443"
+  ]
+}
+```
+
+### Multiple Addresses
+
+Listen on specific network interfaces:
+
+```json server.json
+{
+  "listen": [
+    "192.168.1.10:20038",
+    "10.0.0.5:20038"
+  ]
+}
+```
+
+## Database Configuration
+
+The server uses SQLite for persistent storage of rooms and accounts.
+
+### Database Path
+
+```json server.json
+{
+  "db_path": "server.db"
+}
+```
+
+<Info>
+Paths can be relative (to the server's working directory) or absolute.
+</Info>
+
+### Database Features
+
+The server automatically:
+- Creates the database if it doesn't exist
+- Runs migrations to set up the schema
+- Enables WAL (Write-Ahead Logging) mode for better concurrency
+- Performs integrity checks on startup
+
+```go server/storage/storage.go
+startupStmts := []string{
+    `PRAGMA foreign_keys = ON`,
+    `PRAGMA journal_mode = WAL`,
+    `PRAGMA synchronous = NORMAL`,
+}
+```
+
+### Custom Database Location
+
+```json server.json
+{
+  "db_path": "/var/lib/friendnet/server.db"
+}
+```
+
+<Warning>
+Ensure the server has write permissions to the database directory. SQLite creates additional files (`-wal`, `-shm`) alongside the main database file.
+</Warning>
+
+## TLS Configuration
+
+The server requires TLS certificates for encrypted connections.
+
+### Certificate Path
+
+```json server.json
+{
+  "pem_path": "server.pem"
+}
+```
+
+### Self-Signed Certificates
+
+The server automatically generates a self-signed certificate on first run if the PEM file doesn't exist:
+
+```go server/cert/util.go
+func ReadOrCreatePem(path string, commonName string) (tls.Certificate, error) {
+    pemFile, err := os.ReadFile(path)
+    if err == nil {
+        return pemFile, nil
+    }
+    if !os.IsNotExist(err) {
+        return nil, err
+    }
+
+    // Generate new self-signed certificate
+    pemFile, err = common.GenSelfSignedPem(commonName)
+    if err != nil {
+        return nil, err
+    }
+
+    if err := os.WriteFile(path, pemFile, 0o600); err != nil {
+        return nil, err
+    }
+    return pemFile, nil
+}
+```
+
+The certificate uses the common name `"friendnet-server"`.
+
+### Custom Certificates
+
+To use your own certificate:
+
+1. Generate or obtain a PEM file containing both the certificate and private key
+2. Ensure proper file permissions (`chmod 600 server.pem`)
+3. Point `pem_path` to your certificate
+
+```bash
+# Example: Generate certificate with OpenSSL
+openssl req -x509 -newkey rsa:4096 -keyout server.pem \
+  -out server.pem -days 365 -nodes \
+  -subj "/CN=friendnet-server"
+```
+
+### TLS Settings
+
+The server enforces TLS 1.3 with ALPN:
+
+```go server/cmd/server/main.go
+tlsCfg := &tls.Config{
+    MinVersion:   tls.VersionTLS13,
+    Certificates: []tls.Certificate{keyPair},
+    NextProtos:   []string{protocol.AlpnProtoName},
+}
+```
+
+## RPC Configuration
+
+The RPC service allows administrative control of the server.
+
+### RPC Interfaces
+
+```json server.json
+{
+  "rpc": {
+    "interfaces": [
+      {
+        "address": "unix://friendnet-server.sock",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://0.0.0.0:8080",
+        "allowed_methods": [
+          "GetRooms",
+          "GetRoomInfo",
+          "GetOnlineUsers",
+          "GetOnlineUserInfo",
+          "GetAccounts"
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Unix Socket Interface
+
+Unix sockets provide local-only access with full permissions:
+
+```json
+{
+  "address": "unix://friendnet-server.sock",
+  "allowed_methods": ["*"]
+}
+```
+
+<Info>
+`"*"` allows all RPC methods. This is safe for Unix sockets since they're only accessible locally.
+</Info>
+
+### HTTP Interface
+
+HTTP interfaces can be exposed over the network:
+
+```json
+{
+  "address": "http://127.0.0.1:8080",
+  "allowed_methods": ["GetRooms", "GetRoomInfo"]
+}
+```
+
+<Warning>
+Restrict `allowed_methods` for HTTP interfaces exposed to the network. Only allow read-only methods unless you implement authentication.
+</Warning>
+
+### Available RPC Methods
+
+#### Read-Only Methods
+- `GetRooms` - List all rooms
+- `GetRoomInfo` - Get information about a specific room
+- `GetOnlineUsers` - List online users in a room
+- `GetOnlineUserInfo` - Get info about a specific online user
+- `GetAccounts` - List accounts in a room
+
+#### Administrative Methods
+- `CreateRoom` - Create a new room
+- `DeleteRoom` - Delete a room
+- `CreateAccount` - Create a user account
+- `DeleteAccount` - Delete a user account
+- `UpdateAccountPassword` - Change a user's password
+
+### Method Restrictions
+
+Limit access to dangerous operations:
+
+```json
+{
+  "address": "http://0.0.0.0:8080",
+  "allowed_methods": [
+    "GetRooms",
+    "GetRoomInfo",
+    "GetOnlineUsers"
+  ]
+}
+```
+
+### Multiple RPC Interfaces
+
+You can configure multiple interfaces with different permissions:
+
+```json
+{
+  "rpc": {
+    "interfaces": [
+      {
+        "address": "unix://friendnet-server.sock",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://127.0.0.1:8080",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://0.0.0.0:8081",
+        "allowed_methods": ["GetRooms", "GetRoomInfo"]
+      }
+    ]
+  }
+}
+```
+
+## Password Requirements
+
+The server enforces password requirements for user accounts:
+
+```go server/cmd/server/main.go
+passReqs := password.NewRequirements(
+    password.WithMinLen(8),
+    password.WithMaxLen(64),
+    password.WithCannotContainUsername(),
+)
+```
+
+- Minimum length: 8 characters
+- Maximum length: 64 characters
+- Cannot contain the username
+
+<Note>
+Password requirements are currently hardcoded. Future versions may make these configurable.
+</Note>
+
+## Example Configurations
+
+### Production Server
+
+```json server.json
+{
+  "listen": [
+    "0.0.0.0:20038",
+    "[::]:20038"
+  ],
+  "db_path": "/var/lib/friendnet/server.db",
+  "pem_path": "/etc/friendnet/server.pem",
+  "rpc": {
+    "interfaces": [
+      {
+        "address": "unix:///var/run/friendnet-server.sock",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://127.0.0.1:8080",
+        "allowed_methods": ["*"]
+      }
+    ]
+  }
+}
+```
+
+### Development Server
+
+```json server.json
+{
+  "listen": [
+    "127.0.0.1:20038"
+  ],
+  "db_path": "dev-server.db",
+  "pem_path": "dev-server.pem",
+  "rpc": {
+    "interfaces": [
+      {
+        "address": "unix://dev-server.sock",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://127.0.0.1:9090",
+        "allowed_methods": ["*"]
+      }
+    ]
+  }
+}
+```
+
+### Public Read-Only Stats
+
+```json server.json
+{
+  "listen": [
+    "0.0.0.0:20038",
+    "[::]:20038"
+  ],
+  "db_path": "server.db",
+  "pem_path": "server.pem",
+  "rpc": {
+    "interfaces": [
+      {
+        "address": "unix://friendnet-server.sock",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://127.0.0.1:8080",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://0.0.0.0:8081",
+        "allowed_methods": [
+          "GetRooms",
+          "GetRoomInfo",
+          "GetOnlineUsers"
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Configuration Validation
+
+The server validates the configuration on startup:
+
+```go server/config/config.go
+if cfg.DbPath == "" {
+    return nil, errors.New("db_path is required")
+}
+if cfg.PemPath == "" {
+    return nil, errors.New("pem_path is required")
+}
+if len(cfg.Listen) == 0 {
+    return nil, errors.New("at least one listen address is required")
+}
+```
+
+Invalid configurations will prevent the server from starting.
+
+## Reloading Configuration
+
+<Warning>
+The server does not support live configuration reloading. You must restart the server for configuration changes to take effect.
+</Warning>
+
+To apply configuration changes:
+
+```bash
+# Stop the server (Ctrl+C or systemctl stop)
+# Edit server.json
+# Start the server again
+./friendnet-server
+```

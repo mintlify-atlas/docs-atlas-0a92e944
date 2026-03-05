@@ -1,80 +1,417 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get FriendNet up and running in minutes
 ---
 
-## Get started in three steps
+This guide will take you from zero to a working FriendNet setup. You'll deploy a server, install the client, connect to the network, and share your first folder.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- A VPS or server with a public IP address (for the server)
+- Go 1.21 or later installed (for building from source)
+- A local machine to run the client (Linux, macOS, or Windows)
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+FriendNet is currently in development. Pre-built binaries are coming soon. For now, you'll need to build from source.
 </Note>
+
+## Server Setup
+
+<Steps>
+  <Step title="Build the Server">
+    Clone the repository and build the server binary:
+
+    ```bash
+    git clone https://github.com/yourusername/friendnet.git
+    cd friendnet
+    make server
+    ```
+
+    This creates the `friendnet-server` binary in the `server/` directory.
+  </Step>
+
+  <Step title="Create Configuration">
+    On first run, the server creates a default configuration file:
+
+    ```bash
+    cd server
+    ./friendnet-server -config server.json
+    ```
+
+    The default `server.json` looks like this:
+
+    ```json server.json
+    {
+      "listen": [
+        "0.0.0.0:20038",
+        "[::]:20038"
+      ],
+      "db_path": "server.db",
+      "pem_path": "server.pem",
+      "rpc": {
+        "interfaces": [
+          {
+            "address": "unix://friendnet-server.sock",
+            "allowed_methods": ["*"]
+          },
+          {
+            "address": "http://0.0.0.0:8080",
+            "allowed_methods": [
+              "GetRooms",
+              "GetRoomInfo",
+              "GetOnlineUsers",
+              "GetOnlineUserInfo",
+              "GetAccounts"
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    <Info>
+    The server automatically generates a self-signed TLS certificate on first run. For production, consider using a proper certificate.
+    </Info>
+  </Step>
+
+  <Step title="Start the Server">
+    Launch the server:
+
+    ```bash
+    ./friendnet-server -config server.json
+    ```
+
+    The server will:
+    - Listen on port 20038 for client connections (both IPv4 and IPv6)
+    - Create a SQLite database at `server.db`
+    - Generate a self-signed certificate at `server.pem`
+    - Start the RPC interface on port 8080
+
+    <Warning>
+    Make sure port 20038 is open in your firewall for incoming QUIC/UDP connections.
+    </Warning>
+  </Step>
+
+  <Step title="Create User Accounts">
+    Use the RPC client to manage user accounts. Build it with:
+
+    ```bash
+    cd ../rpcclient
+    go build -o friendnet-rpcclient friendnet.org/rpcclient/cmd/cli
+    ```
+
+    Then create accounts for your users through the RPC interface.
+  </Step>
+</Steps>
+
+## Client Installation
+
+<Steps>
+  <Step title="Build the Client">
+    Build the client with the web UI:
+
+    <CodeGroup>
+    ```bash Linux/macOS
+    cd client
+    make client
+    ```
+
+    ```bash Windows
+    cd client
+    make client-windows
+    ```
+    </CodeGroup>
+
+    <Note>
+    For headless systems without UI dependencies, use `make client-noui` instead.
+    </Note>
+  </Step>
+
+  <Step title="Launch the Client">
+    Run the client:
+
+    <CodeGroup>
+    ```bash Linux/macOS
+    ./client/friendnet-client
+    ```
+
+    ```bash Windows
+    friendnet-client.exe
+    ```
+
+    ```bash Headless Mode
+    ./client/friendnet-client -headless
+    ```
+    </CodeGroup>
+
+    The client will:
+    - Start the RPC server on `https://localhost:20040`
+    - Start the file server on `https://localhost:20041`
+    - Open the web UI at `https://localhost:20042`
+    - Start the WebDAV server on `https://localhost:20043`
+
+    <Info>
+    The web UI will open automatically in your default browser. The client uses a self-signed certificate for HTTPS.
+    </Info>
+  </Step>
+
+  <Step title="Install Root Certificate (First Time Only)">
+    For the web UI to work properly without certificate warnings, install the client's root CA:
+
+    ```bash
+    ./friendnet-client -installca
+    ```
+
+    You may need to restart your browser after installation.
+
+    <Warning>
+    On Windows, this happens automatically the first time you run the client.
+    </Warning>
+  </Step>
+</Steps>
+
+## Connecting to a Server
+
+<Steps>
+  <Step title="Add Server in Web UI">
+    In the web UI, add your server with:
+
+    - **Name**: A friendly name (e.g., "My FriendNet Server")
+    - **Address**: Your server's hostname or IP with port (e.g., `friendnet.example.com:20038`)
+    - **Room**: The room to join (e.g., `general`)
+    - **Username**: Your username
+    - **Password**: Your password
+
+    The client will automatically attempt to connect.
+  </Step>
+
+  <Step title="Verify Connection">
+    Once connected, you'll see:
+    - Connection state changes from `disconnected` to `connected`
+    - List of online users in your room
+    - Ability to browse and search
+
+    <Info>
+    FriendNet supports multiple server connections. You can connect to different servers simultaneously.
+    </Info>
+  </Step>
+
+  <Step title="Configure Direct Connections (Optional)">
+    For better performance, enable direct peer-to-peer connections:
+
+    1. Go to **Settings** → **Direct Connections**
+    2. Configure your preferences:
+       - **Default Port**: Port for incoming connections (default: random)
+       - **UPnP**: Enable automatic port forwarding
+       - **Advertise Private IPs**: Share local network IPs with peers
+
+    <Note>
+    Direct connections are optional. The server will proxy all traffic if direct connections fail.
+    </Note>
+  </Step>
+</Steps>
+
+## Sharing Your First Folder
+
+<Steps>
+  <Step title="Create a Share">
+    In the web UI:
+    1. Select your connected server
+    2. Navigate to **Shares**
+    3. Click **Add Share**
+    4. Configure the share:
+       - **Name**: Share name visible to others (e.g., `music`)
+       - **Path**: Local folder path (e.g., `/home/user/Music`)
+       - **Follow Symlinks**: Whether to follow symbolic links
+
+    ```bash Example share paths
+    # Linux/macOS
+    /home/username/Documents
+    /mnt/media/movies
+    
+    # Windows  
+    C:\Users\Username\Music
+    D:\Media\TV Shows
+    ```
+  </Step>
+
+  <Step title="Index the Share (Optional)">
+    Enable full-text search by indexing your share:
+
+    1. Select the share
+    2. Click **Index Now**
+    3. Wait for indexing to complete
+
+    <Info>
+    Indexing is optional but enables faster searching. Without indexing, searches will scan files in real-time.
+    </Info>
+  </Step>
+
+  <Step title="Verify Sharing">
+    Test that your share is accessible:
+    1. Have another user search for a file in your share
+    2. Or browse your own shares from the WebDAV interface
+
+    Your shared folders will appear to other users as:
+    ```
+    /music/Artist Name/Album/song.mp3
+    ```
+  </Step>
+</Steps>
+
+## Searching for Files
+
+<Steps>
+  <Step title="Global Search">
+    Search across all users in your room:
+
+    1. Click the **Search** tab
+    2. Enter your search query (e.g., `vacation photos`)
+    3. Results appear as users respond
+    4. Click any result to download
+
+    <Info>
+    Search results show the directory path, filename, and an optional snippet of matching text.
+    </Info>
+  </Step>
+
+  <Step title="Browse User Shares">
+    Browse a specific user's files:
+
+    1. Go to **Online Users**
+    2. Select a user
+    3. Browse their shared folders
+    4. Click to download individual files
+
+    Paths follow this format:
+    ```
+    /share-name/subfolder/file.ext
+    ```
+  </Step>
+
+  <Step title="Download Files">
+    Files can be downloaded through:
+    - **Web UI**: Click to download directly
+    - **WebDAV**: Mount and access like a network drive
+    - **File Server URL**: Direct HTTP downloads
+
+    The file server provides downloads at:
+    ```
+    https://localhost:20041/download/{server-uuid}/{username}/{path}
+    ```
+  </Step>
+</Steps>
+
+## Using WebDAV
+
+Mount remote shares as network drives using the built-in WebDAV server:
+
+<CodeGroup>
+```bash Linux (davfs2)
+# Mount all shares
+sudo mount -t davfs https://localhost:20043/ /mnt/friendnet
+
+# With credentials if needed
+sudo mount -t davfs https://localhost:20043/ /mnt/friendnet \
+  -o username=dummy,password=your-bearer-token
+```
+
+```bash macOS (Finder)
+# In Finder, select Go → Connect to Server
+# Enter: https://localhost:20043/
+```
+
+```bash Windows (Explorer)
+# Map Network Drive in Windows Explorer
+# Use: https://localhost:20043/
+```
+</CodeGroup>
+
+<Warning>
+The WebDAV server currently requires the bearer token as the password. You can find this token in the client logs or RPC settings.
+</Warning>
+
+## Command Line Options
+
+The client supports various command line flags:
+
+```bash
+# Specify custom data directory
+./friendnet-client -datadir /path/to/data
+
+# Use custom addresses
+./friendnet-client -rpcaddr https://localhost:8080 \
+                   -uiaddr https://localhost:8081
+
+# Run without browser
+./friendnet-client -nobrowser
+
+# Headless mode (no UI, no locking)
+./friendnet-client -headless
+
+# Reset RPC bearer token
+./friendnet-client -resettoken
+
+# Uninstall root CA
+./friendnet-client -uninstallca
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Shares" icon="folder" href="/client/sharing-files">
+    Learn about advanced sharing options
+  </Card>
+  
+  <Card title="Server Administration" icon="user-shield" href="/server/administration">
+    Manage users, rooms, and server settings
+  </Card>
+  
+  <Card title="Direct Connections" icon="link" href="/features/direct-connections">
+    Optimize peer-to-peer connectivity
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/client-rpc">
+    Integrate with the RPC API
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Certificate Errors
+
+If you see certificate warnings in your browser:
+
+```bash
+# Reinstall the root CA
+./friendnet-client -installca
+
+# Then restart your browser
+```
+
+### Connection Failed
+
+If the client can't connect to the server:
+
+- Verify the server address and port are correct
+- Check that port 20038 (UDP) is open on the server
+- Ensure your credentials are correct
+- Check the client logs for error details
+
+### Files Not Found
+
+If searches return no results:
+
+- Verify shares are configured correctly
+- Check that the shared folders exist and are readable
+- Try indexing your shares for better search performance
+- Ensure the user is online and connected
+
+### Direct Connections Not Working
+
+If direct peer-to-peer fails:
+
+- The server will automatically proxy connections
+- Enable UPnP if your router supports it
+- Manually configure port forwarding if needed
+- Check firewall settings on both clients

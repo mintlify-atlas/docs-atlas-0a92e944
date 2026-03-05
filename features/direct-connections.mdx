@@ -1,0 +1,386 @@
+---
+title: Direct Connections
+description: Peer-to-peer connections between clients for fast file transfers
+---
+
+Direct connections allow FriendNet clients to communicate peer-to-peer without routing traffic through the server. This provides better performance, lower latency, and reduces server load.
+
+## How Direct Connections Work
+
+Direct connections establish UDP-based QUIC connections between two clients. The process involves:
+
+1. **Discovery**: Clients advertise their connection methods (IP addresses and ports) to the server
+2. **Probing**: When connecting, clients try multiple methods in parallel
+3. **Handshake**: Successful connections perform a token-based handshake for authentication
+4. **Adoption**: Verified connections are adopted and managed by the room connection
+
+## Connection Method Probing
+
+When a client wants to establish a direct connection to a peer, it queries the server for available connection methods and tries them concurrently:
+
+```go client/room/direct.go
+// tryConnectToPeer attempts to establish a direct connection to a peer
+func (c *Conn) tryConnectToPeer(ctx context.Context, peer common.NormalizedUsername) (protocol.ProtoConn, pb.ConnResult, error) {
+    // Query methods for the peer
+    methodsMsg, methodsErr := protocol.SendAndReceiveExpect[*pb.MsgClientConnMethods](
+        c.serverConn,
+        pb.MsgType_MSG_TYPE_GET_CLIENT_CONN_METHODS,
+        &pb.MsgGetClientConnMethods{
+            Username: peer.String(),
+        },
+        pb.MsgType_MSG_TYPE_CLIENT_CONN_METHODS,
+    )
+    if methodsErr != nil {
+        return nil, 0, fmt.Errorf(`failed to query connection methods: %w`, methodsErr)
+    }
+
+    peerMethods = methodsMsg.Payload.Methods
+
+    // Sort methods by verified, priority desc
+    slices.SortFunc(peerMethods, func(a *pb.ConnMethod, b *pb.ConnMethod) int {
+        if a.IsServerVerified != b.IsServerVerified {
+            if a.IsServerVerified {
+                return -1
+            }
+            return 1
+        }
+        return int(b.Priority) - int(a.Priority)
+    })
+
+    // Try methods concurrently...
+}
+```
+
+### Connection Method Priority
+
+Methods are prioritized based on their type:
+
+```go client/room/direct.go
+// mkAdConnMethod returns a message to advertise a direct connection method
+// Priorities:
+// 2 = public IP
+// 1 = default
+// 0 = private IP
+// -1 = Yggdrasil
+func (c *Conn) mkAdConnMethod(publicIp netip.Addr, addrPort netip.AddrPort) *pb.MsgAdvertiseConnMethod {
+    addr := addrPort.Addr()
+    isYggdrasil := common.YggdrasilPrefix.Contains(addr)
+
+    var methodType pb.ConnMethodType
+    var priority int32
+    if isYggdrasil {
+        priority = -1
+        methodType = pb.ConnMethodType_CONN_METHOD_TYPE_YGGDRASIL
+    } else {
+        if publicIp.IsValid() && addr == publicIp {
+            priority = 2
+        } else if addr.IsPrivate() {
+            priority = 0
+        } else {
+            priority = 1
+        }
+        methodType = pb.ConnMethodType_CONN_METHOD_TYPE_IP
+    }
+
+    return &pb.MsgAdvertiseConnMethod{
+        Id:       c.mkMethodId(addrPort),
+        Type:     methodType,
+        Address:  addrPort.String(),
+        Priority: priority,
+    }
+}
+```
+
+## UPnP Support
+
+FriendNet includes built-in UPnP (Universal Plug and Play) support to automatically configure port forwarding on compatible routers.
+
+### UPnP Discovery and Forwarding
+
+```go upnp/upnp.go
+// Discover discovers UPnP InternetGatewayDevices
+func Discover(ctx context.Context, _, timeout time.Duration) []Device {
+    var results []Device
+
+    interfaces, err := listInterfaces()
+    if err != nil {
+        logger.WarnContext(ctx, "Failed to list network interfaces", slog.Any("error", err))
+        return results
+    }
+
+    resultChan := make(chan Device)
+    wg := &sync.WaitGroup{}
+
+    for i := range interfaces {
+        intf := interfaces[i]
+        if intf.Flags&net.FlagRunning == 0 || intf.Flags&net.FlagMulticast == 0 {
+            continue
+        }
+
+        wg.Add(1)
+        go func(intf net.Interface) {
+            defer wg.Done()
+            // Discover IPv6 gateways on interface (IGDv2 only)
+            hasGUA, err := interfaceHasGUAIPv6(intf)
+            if err == nil && hasGUA {
+                discover(ctx, &intf, urnIgdV2, timeout, resultChan, true)
+            }
+
+            // Discover IPv4 gateways on interface
+            for _, deviceType := range []string{urnIgdV2, urnIgdV1} {
+                discover(ctx, &intf, deviceType, timeout, resultChan, false)
+            }
+        }(intf)
+    }
+    // ...
+}
+```
+
+### Automatic Port Forwarding
+
+The direct connection manager automatically sets up port forwarding:
+
+```go client/direct/manager.go
+func (m *Manager) startServers() {
+    if !m.cfg.DisableUPnP {
+        upnp.SetLogger(m.logger)
+
+        timeout := m.cfg.UpnpTimeout
+        if timeout == 0 {
+            timeout = 10 * time.Second
+        }
+
+        timeoutCtx, cancel := context.WithTimeout(m.ctx, timeout)
+
+        const ipForwardDuration = 2 * time.Hour
+
+        forwardIps := func(ctx context.Context, defaultPort uint16) upnp.ForwardResult {
+            return upnp.ForwardUDPForPublicIPs(ctx, defaultPort, "FriendNet Client Direct", ipForwardDuration, 3*time.Second)
+        }
+
+        forwardOk := func() bool {
+            result := forwardIps(timeoutCtx, defaultPort)
+            if len(result.Forwarded) == 0 {
+                m.logger.Warn("UPnP public IP discovery and forwarding failed")
+                return false
+            }
+            // Extract public IP from forwarded result...
+            return true
+        }()
+
+        if forwardOk {
+            // Periodically re-forward IPs with UPnP
+            go func() {
+                ticker := time.NewTicker(ipForwardDuration - (10 * time.Minute))
+                defer ticker.Stop()
+
+                for {
+                    select {
+                    case <-m.ctx.Done():
+                        return
+                    case <-ticker.C:
+                        forwardIps(context.Background(), defaultPort)
+                    }
+                }
+            }()
+        }
+    }
+    // ...
+}
+```
+
+<Note>
+UPnP port forwarding is renewed every 2 hours (minus 10 minutes) to maintain the mapping.
+</Note>
+
+## Direct Connection Manager
+
+The manager coordinates multiple direct servers and handles incoming connections:
+
+```go client/direct/manager.go
+type Manager struct {
+    logger *slog.Logger
+
+    ctx       context.Context
+    ctxCancel context.CancelFunc
+
+    cfg          *Config
+    cfgAddrPorts map[netip.AddrPort]struct{}
+    defaultPort  uint16
+
+    // All currently listening servers
+    servers map[netip.AddrPort]*Server
+
+    // All active partitions
+    // Closing a partition removes it from this map
+    partitions map[string]*Partition
+}
+```
+
+### Partitions
+
+Partitions allow multiple room connections to share the same direct servers:
+
+```go client/direct/manager.go
+// Partition is an identifier for a listener on a shared direct connection server
+type Partition struct {
+    ctx       context.Context
+    ctxCancel context.CancelFunc
+
+    id string
+    m  *Manager
+
+    connChan        chan *IncomingDirectConn
+    serverOpenChan  chan *Server
+    serverCloseChan chan *Server
+}
+
+// CreateMethodId returns a direct connection method ID
+func (p *Partition) CreateMethodId(id string) string {
+    return p.id + ":" + id
+}
+
+// AcceptConn waits for an incoming connection and returns it
+func (p *Partition) AcceptConn() (*IncomingDirectConn, error) {
+    select {
+    case <-p.ctx.Done():
+        return nil, ErrPartitionClosed
+    case conn := <-p.connChan:
+        return conn, nil
+    }
+}
+```
+
+## When Direct Connections Are Used
+
+Direct connections are attempted automatically when:
+
+1. **File access**: Reading file data or metadata from a peer
+2. **Directory listing**: Browsing a peer's shared folders
+3. **Search results**: Fetching search results from a peer
+
+The system falls back to proxy mode if direct connections fail.
+
+## Handling Incoming Connections
+
+When a direct connection is established, it must be authenticated:
+
+```go client/room/direct.go
+func (c *Conn) incomingDirectConnHandler(incomingConn *direct.IncomingDirectConn) {
+    tokenRes, err := c.redeemDirectHandshakeToken(incomingConn.Handshake.Token)
+    if err != nil {
+        c.logger.Error("failed to redeem direct conn handshake token")
+        _ = incomingConn.InternalError()
+        return
+    }
+
+    if !tokenRes.IsValid {
+        _ = incomingConn.InvalidToken()
+        return
+    }
+
+    if tokenRes.Room != c.RoomName.String() {
+        c.logger.Error("direct conn handshake token room mismatch")
+        _ = incomingConn.InvalidToken()
+        return
+    }
+
+    username, usernameOk := common.NormalizeUsername(tokenRes.Username)
+    if !usernameOk {
+        _ = incomingConn.InvalidToken()
+        return
+    }
+
+    conn, err := incomingConn.Approve()
+    if err != nil {
+        return
+    }
+
+    alreadyOwned := c.AdoptDirectConn(conn, username)
+    if alreadyOwned {
+        _ = conn.CloseWithReason("internal error")
+        return
+    }
+
+    c.logger.Info("client made direct connection",
+        "room", c.RoomName.String(),
+        "username", username.String(),
+        "remote_addr", incomingConn.RemoteAddr().String(),
+    )
+}
+```
+
+## Connection Adoption
+
+Once authenticated, connections are adopted and managed:
+
+```go client/room/direct.go
+// AdoptDirectConn puts the connection under management
+func (c *Conn) AdoptDirectConn(conn protocol.ProtoConn, username common.NormalizedUsername) (alreadyOwned bool) {
+    c.mu.Lock()
+
+    set, has := c.directConns[username]
+    if !has {
+        set = make(map[protocol.ProtoConn]struct{})
+        c.directConns[username] = set
+    }
+
+    _, has = set[conn]
+    if has {
+        return true
+    }
+
+    set[conn] = struct{}{}
+    c.mu.Unlock()
+
+    // Ping loop
+    go func() {
+        ticker := time.NewTicker(ServerPingInterval)
+        defer ticker.Stop()
+
+        for {
+            select {
+            case <-c.Context.Done():
+                return
+            case <-ticker.C:
+                _, pingErr := protocol.SendAndReceiveExpect[*pb.MsgPong](
+                    conn,
+                    pb.MsgType_MSG_TYPE_PING,
+                    &pb.MsgPing{},
+                    pb.MsgType_MSG_TYPE_PONG,
+                )
+                if pingErr != nil {
+                    return
+                }
+            }
+        }
+    }()
+
+    // Handle incoming connections...
+}
+```
+
+<Tip>
+Direct connections maintain active ping loops to detect connection failures quickly.
+</Tip>
+
+## Configuration
+
+Direct connections can be configured per client:
+
+- **Disable**: Turn off direct connections entirely
+- **DisableUPnP**: Skip UPnP discovery and port forwarding
+- **DisablePublicIpDiscovery**: Don't ask the server for your public IP
+- **DisableProbeIpsToAdvertise**: Don't probe local network interfaces
+- **AdvertisePrivateIps**: Advertise private (LAN) IP addresses
+
+## Related Topics
+
+<CardGroup cols={2}>
+  <Card title="Proxy Mode" icon="server" href="/features/proxy-mode">
+    Learn how connections are proxied when direct connections fail
+  </Card>
+  <Card title="Rooms" icon="users" href="/features/rooms">
+    Understand the room system that coordinates direct connections
+  </Card>
+</CardGroup>

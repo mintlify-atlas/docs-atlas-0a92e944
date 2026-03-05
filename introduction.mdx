@@ -1,0 +1,121 @@
+---
+title: Introduction
+description: Learn about FriendNet, a self-hostable file sharing system designed for small groups
+---
+
+## What is FriendNet?
+
+FriendNet is a self-hostable file sharing system designed for small groups of friends, similar to Soulseek but with a focus on simplicity and accessibility. It provides peer-to-peer style file sharing without the usual hassles of port forwarding and complex network configurations.
+
+## Why FriendNet?
+
+Traditional file sharing systems like Soulseek work great for public networks, but setting up your own private file sharing network for a small group has always been challenging. FriendNet solves this by:
+
+- **No Port Forwarding Required** - Share files even behind restrictive firewalls, VPNs, or CGNAT
+- **Self-Hostable** - Run your own private server with full control
+- **Proxied Downloads** - Server can proxy connections when direct peer-to-peer isn't possible
+- **Easy to Use** - Simple setup process designed for non-technical users
+
+<Note>
+FriendNet is not intended to replace public networks like Soulseek, but rather provide an easy-to-use solution for private file sharing among small groups.
+</Note>
+
+## Core Architecture
+
+FriendNet consists of three main components:
+
+### Server
+
+The server is the central hub that facilitates:
+- User authentication and account management
+- File search across all connected clients
+- Peer discovery
+- Proxied downloads when direct connections aren't possible
+
+The server uses **QUIC protocol** for secure, multiplexed connections with built-in TLS encryption.
+
+### Client
+
+The client provides:
+- **Web UI** - Browser-based interface for managing connections and shares
+- **RPC API** - For programmatic access and automation
+- **File Server** - Serves your shared files to other users
+- **WebDAV Support** - Mount remote shares as network drives
+
+### Protocol
+
+FriendNet operates over QUIC with a simple request-response model:
+
+- **C2S (Client to Server)** - Authentication, room operations, global search
+- **S2C (Server to Client)** - User lists, search results, notifications  
+- **C2C (Client to Client)** - Direct file browsing and downloads (or proxied through server)
+
+<Info>
+The protocol uses semantic versioning and is designed for backwards compatibility. Clients can negotiate versions with the server during the handshake phase.
+</Info>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Flexible Connectivity" icon="network-wired">
+    Direct peer-to-peer when possible, automatic proxy fallback when needed
+  </Card>
+  
+  <Card title="Room-Based Organization" icon="users">
+    Organize users into rooms for better privacy and discoverability
+  </Card>
+  
+  <Card title="Full-Text Search" icon="magnifying-glass">
+    Search across all shared files in your network with optional indexing
+  </Card>
+  
+  <Card title="Web Interface" icon="browser">
+    Modern web UI with HTTPS support for secure remote access
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+### Private Media Libraries
+Share your music, movies, or photo collections with friends and family without relying on cloud storage services.
+
+### Team File Sharing
+Small teams can share project files, design assets, and documents within their own private network.
+
+### Game Modding Communities
+Distribute mods, maps, and custom content within your gaming community with easy search and discovery.
+
+### Research Collaboration
+Share datasets, papers, and research materials with collaborators while maintaining control over your data.
+
+## How It Works
+
+1. **Server Setup** - Deploy a FriendNet server on a VPS or local machine with a public IP
+2. **Client Connection** - Users connect to the server with their credentials
+3. **Share Folders** - Each user shares folders from their local filesystem
+4. **Search & Browse** - Users can search across all shares or browse individual user's folders
+5. **Download** - Files are transferred directly between clients (or proxied through the server)
+
+<Warning>
+FriendNet is currently **work-in-progress software**. While functional, it may contain bugs and the protocol may change between versions.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get started with FriendNet in minutes
+  </Card>
+  
+  <Card title="Server Setup" icon="server" href="/server/setup">
+    Deploy your own FriendNet server
+  </Card>
+  
+  <Card title="Client Configuration" icon="gear" href="/client/installation">
+    Configure the FriendNet client
+  </Card>
+  
+  <Card title="Protocol Reference" icon="book" href="/protocol/overview">
+    Deep dive into the protocol specification
+  </Card>
+</CardGroup>

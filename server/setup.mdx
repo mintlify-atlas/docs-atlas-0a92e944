@@ -1,0 +1,263 @@
+---
+title: Server Setup
+description: Install and deploy the FriendNet server
+---
+
+## Overview
+
+The FriendNet server is the central component that facilitates file search, peer discovery, and optional proxied downloads. This guide will walk you through installing, configuring, and starting your own FriendNet server.
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Operating System" icon="computer">
+    - Linux (recommended)
+    - macOS
+    - Windows
+  </Card>
+  <Card title="Resources" icon="server">
+    - 512 MB RAM minimum
+    - 100 MB disk space
+    - Network connectivity
+  </Card>
+</CardGroup>
+
+### Dependencies
+
+- Go 1.21 or later (for building from source)
+- SQLite support (included in modernc.org/sqlite)
+
+## Installation
+
+### Building from Source
+
+Clone the repository and build the server:
+
+```bash
+git clone https://github.com/friendnet/friendnet.git
+cd friendnet
+make server
+```
+
+This will create the `friendnet-server` binary in the `server/` directory.
+
+<Note>
+The Makefile builds the server by running:
+```bash
+cd server && go build -o friendnet-server friendnet.org/server/cmd/server
+```
+</Note>
+
+### Download Pre-built Binary
+
+<Warning>
+Pre-built binaries are not yet available. Please build from source for now.
+</Warning>
+
+## Initial Configuration
+
+When you first run the server, it will automatically generate a default configuration file.
+
+### Generate Default Config
+
+```bash
+./friendnet-server
+```
+
+On first run, the server will create:
+- `server.json` - Configuration file
+- `server.db` - SQLite database
+- `server.pem` - Self-signed TLS certificate
+
+<Info>
+The server automatically generates a self-signed certificate for TLS encryption. See the [Configuration](/server/configuration) page to use your own certificate.
+</Info>
+
+### Default Configuration
+
+The generated `server.json` looks like this:
+
+```json server.json
+{
+  "listen": [
+    "0.0.0.0:20038",
+    "[::]:20038"
+  ],
+  "db_path": "server.db",
+  "pem_path": "server.pem",
+  "rpc": {
+    "interfaces": [
+      {
+        "address": "unix://friendnet-server.sock",
+        "allowed_methods": ["*"]
+      },
+      {
+        "address": "http://0.0.0.0:8080",
+        "allowed_methods": [
+          "GetRooms",
+          "GetRoomInfo",
+          "GetOnlineUsers",
+          "GetOnlineUserInfo",
+          "GetAccounts"
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Starting the Server
+
+### Basic Start
+
+```bash
+./friendnet-server
+```
+
+The server will:
+1. Load or create the configuration file
+2. Initialize the database
+3. Generate/load TLS certificates
+4. Start listening on configured addresses
+5. Start RPC interfaces
+
+### Custom Config Path
+
+Specify a custom configuration file:
+
+```bash
+./friendnet-server -config /path/to/config.json
+```
+
+### Running as a Service
+
+#### systemd (Linux)
+
+Create a systemd service file at `/etc/systemd/system/friendnet-server.service`:
+
+```ini /etc/systemd/system/friendnet-server.service
+[Unit]
+Description=FriendNet Server
+After=network.target
+
+[Service]
+Type=simple
+User=friendnet
+WorkingDirectory=/opt/friendnet
+ExecStart=/opt/friendnet/friendnet-server -config /opt/friendnet/server.json
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable friendnet-server
+sudo systemctl start friendnet-server
+```
+
+#### Docker
+
+Create a `Dockerfile`:
+
+```dockerfile Dockerfile
+FROM golang:1.21-alpine AS builder
+WORKDIR /build
+COPY . .
+RUN cd server && go build -o friendnet-server friendnet.org/server/cmd/server
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
+COPY --from=builder /build/server/friendnet-server .
+EXPOSE 20038 8080
+CMD ["./friendnet-server"]
+```
+
+Build and run:
+
+```bash
+docker build -t friendnet-server .
+docker run -d -p 20038:20038 -p 8080:8080 \
+  -v friendnet-data:/app \
+  --name friendnet-server \
+  friendnet-server
+```
+
+## Verifying Installation
+
+### Check Server Logs
+
+The server outputs JSON-formatted logs to stdout:
+
+```json
+{"level":"info","msg":"server listening","addr":"0.0.0.0:20038"}
+{"level":"info","msg":"RPC listening","addr":"unix://friendnet-server.sock"}
+```
+
+### Test with rpcclient
+
+Build and use the RPC client to verify the server is running:
+
+```bash
+make rpcclient
+cd server
+../rpcclient/friendnet-rpcclient
+```
+
+In the rpcclient CLI:
+
+```bash
+> getrooms
+No rooms.
+```
+
+If you see this output, your server is running correctly!
+
+### Check Network Connectivity
+
+Verify the server is listening on the correct ports:
+
+```bash
+ss -tlnp | grep 20038
+ss -tlnp | grep 8080
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/server/configuration">
+    Configure TLS, database, and RPC interfaces
+  </Card>
+  <Card title="Administration" icon="wrench" href="/server/administration">
+    Manage users, rooms, and server maintenance
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Port Already in Use
+
+If port 20038 or 8080 is already in use, modify the `listen` or `rpc.interfaces` addresses in `server.json`.
+
+### Permission Denied
+
+If binding to ports below 1024, you'll need elevated privileges:
+
+```bash
+sudo ./friendnet-server
+```
+
+Or use `setcap` to allow the binary to bind to privileged ports:
+
+```bash
+sudo setcap 'cap_net_bind_service=+ep' ./friendnet-server
+```
+
+### Database Locked
+
+Ensure only one server instance is accessing the database at a time. SQLite uses file locking.

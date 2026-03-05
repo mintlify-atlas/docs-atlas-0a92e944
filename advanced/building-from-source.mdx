@@ -1,0 +1,265 @@
+---
+title: Building from Source
+description: Learn how to build FriendNet server and client from source code
+---
+
+FriendNet is written in Go with a TypeScript/SolidJS web interface. This guide walks you through building all components from source.
+
+## Prerequisites
+
+Before building FriendNet, ensure you have the following tools installed:
+
+<CardGroup cols={2}>
+  <Card title="Go 1.26+" icon="golang" iconType="duotone">
+    Required for building server, client, and rpcclient
+  </Card>
+  <Card title="Node.js & npm" icon="node-js" iconType="duotone">
+    Required for building the web UI
+  </Card>
+  <Card title="buf" icon="brackets-curly" iconType="duotone">
+    Protocol buffer compiler (v1.64.0+)
+  </Card>
+  <Card title="Make" icon="hammer" iconType="duotone">
+    Build automation tool
+  </Card>
+</CardGroup>
+
+## Cloning the Repository
+
+First, clone the FriendNet repository:
+
+```bash
+git clone https://github.com/yourusername/friendnet.git
+cd friendnet
+```
+
+## Installing Build Tools
+
+FriendNet uses Protocol Buffers for RPC communication. Install the required tools using the provided Makefile:
+
+```bash
+make install-tools
+```
+
+This installs:
+- `buf` (v1.64.0) - Protocol buffer linter and code generator
+- `protoc-gen-go` (v1.36.11) - Go code generator for Protocol Buffers
+- `protoc-gen-connect-go` (v1.19.1) - Connect RPC code generator
+
+<Note>
+The `install-tools` target uses `go install` to install these tools globally. Make sure your `$GOPATH/bin` is in your system PATH.
+</Note>
+
+## Building Protocol Buffers
+
+Before building the server or client, you need to generate Go code from the Protocol Buffer definitions.
+
+### Generate Go Protocol Buffers
+
+```bash
+make pb
+```
+
+This command:
+1. Lints the protocol buffer files using `buf lint`
+2. Generates Go code from `.proto` files in the `protocol/` directory
+
+### Generate Web Protocol Buffers
+
+```bash
+make pbweb
+```
+
+This command:
+1. Lints the web UI protocol buffer files
+2. Generates TypeScript code for the web interface
+
+<Warning>
+You must run `make pb` before building the server or client, and `make pbweb` before building the client with UI support.
+</Warning>
+
+## Building the Server
+
+Build the FriendNet server:
+
+```bash
+make server
+```
+
+This compiles the server binary to:
+```
+server/friendnet-server
+```
+
+The build command executes:
+```bash
+cd server && go build -o friendnet-server friendnet.org/server/cmd/server
+```
+
+## Building the Client
+
+FriendNet offers multiple client build options depending on your needs.
+
+### Client with Web UI (Default)
+
+Build the client with the embedded web UI:
+
+```bash
+make client
+```
+
+This:
+1. Runs `go generate` in the `webui/` directory to embed web assets
+2. Builds the client binary to `client/friendnet-client`
+
+The build process executes:
+```bash
+cd webui && go generate && cd ../client && go build -o friendnet-client friendnet.org/client/cmd/client
+```
+
+### Client without Web UI
+
+Build a headless client without the web interface:
+
+```bash
+make client-noui
+```
+
+This produces a smaller binary at `client/friendnet-client` without embedded web assets.
+
+### Windows Client with Web UI
+
+Build a Windows executable with GUI support:
+
+```bash
+make client-windows
+```
+
+This creates `client/friendnet-client.exe` with:
+- Embedded web UI
+- Windows GUI mode (no console window)
+- Cross-compiled for `windows/amd64`
+
+The build command:
+```bash
+cd webui && go generate && cd ../client && \
+  GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui" \
+  -o friendnet-client.exe friendnet.org/client/cmd/client
+```
+
+### Windows Client without Web UI
+
+Build a headless Windows client:
+
+```bash
+make client-windows-noui
+```
+
+## Building the RPC Client
+
+Build the command-line RPC client tool:
+
+```bash
+make rpcclient
+```
+
+This creates the `rpcclient/friendnet-rpcclient` binary, which provides a CLI interface for managing the FriendNet server.
+
+### Running the RPC Client
+
+You can build and immediately run the RPC client against a local server:
+
+```bash
+make run-rpcclient
+```
+
+This builds the rpcclient and connects to the server's Unix socket at `server/friendnet-server.sock`.
+
+## Cross-Compilation
+
+FriendNet supports cross-compilation for different platforms using Go's built-in cross-compilation support.
+
+### Supported Platforms
+
+The Makefile includes targets for Windows, but you can build for any Go-supported platform by setting `GOOS` and `GOARCH`:
+
+```bash
+# Linux AMD64
+GOOS=linux GOARCH=amd64 go build -o friendnet-server friendnet.org/server/cmd/server
+
+# macOS ARM64 (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o friendnet-server friendnet.org/server/cmd/server
+
+# Linux ARM64
+GOOS=linux GOARCH=arm64 go build -o friendnet-server friendnet.org/server/cmd/server
+```
+
+### Common Platform Combinations
+
+<CodeGroup>
+```bash Linux x64
+cd server
+GOOS=linux GOARCH=amd64 go build -o friendnet-server-linux-amd64 \
+  friendnet.org/server/cmd/server
+```
+
+```bash macOS Intel
+cd server
+GOOS=darwin GOARCH=amd64 go build -o friendnet-server-darwin-amd64 \
+  friendnet.org/server/cmd/server
+```
+
+```bash macOS Apple Silicon
+cd server
+GOOS=darwin GOARCH=arm64 go build -o friendnet-server-darwin-arm64 \
+  friendnet.org/server/cmd/server
+```
+
+```bash Windows x64
+cd server
+GOOS=windows GOARCH=amd64 go build -o friendnet-server.exe \
+  friendnet.org/server/cmd/server
+```
+</CodeGroup>
+
+## Build Output
+
+After building, you'll find the binaries in their respective directories:
+
+| Binary | Location | Description |
+|--------|----------|-------------|
+| Server | `server/friendnet-server` | Main FriendNet server |
+| Client | `client/friendnet-client` | FriendNet client with/without UI |
+| RPC Client | `rpcclient/friendnet-rpcclient` | CLI management tool |
+
+## Verifying Your Build
+
+Test that the binaries were built successfully:
+
+```bash
+# Check server version
+./server/friendnet-server -h
+
+# Check client options
+./client/friendnet-client -h
+
+# Check rpcclient
+./rpcclient/friendnet-rpcclient -h
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Server Setup" icon="server" href="/server/setup">
+    Configure and run your FriendNet server
+  </Card>
+  <Card title="Client Setup" icon="desktop" href="/client/installation">
+    Connect to a server with the client
+  </Card>
+  <Card title="CLI Tools" icon="terminal" href="/advanced/cli-tools">
+    Learn to use the rpcclient management tool
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/advanced/troubleshooting">
+    Common build issues and solutions
+  </Card>
+</CardGroup>
